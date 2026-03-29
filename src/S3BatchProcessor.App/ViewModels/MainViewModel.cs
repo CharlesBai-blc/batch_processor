@@ -16,6 +16,14 @@ public partial class MainViewModel : ObservableObject
         Ec2Manager = ec2Manager;
         JobAssignment = jobAssignment;
         JobExecution = jobExecution;
+
+        S3Browser.ContinueRequested += () => SelectedTabIndex = 1;
+        Ec2Manager.ContinueRequested += () => SelectedTabIndex = 2;
+
+        JobAssignment.RunRequested += (assignments, exePath, outputPrefix) =>
+        {
+            _ = JobExecution.StartExecution(assignments, exePath, outputPrefix);
+        };
     }
 
     public StatusBarViewModel StatusBar { get; }
@@ -26,4 +34,19 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private int _selectedTabIndex;
+
+    partial void OnSelectedTabIndexChanged(int value)
+    {
+        if (value == 1 && !Ec2Manager.IsLoading)
+        {
+            _ = Ec2Manager.RefreshInstancesCommand.ExecuteAsync(null);
+        }
+
+        if (value == 2)
+        {
+            JobAssignment.LoadSelections(
+                S3Browser.CommittedSelections,
+                Ec2Manager.SelectedInstances);
+        }
+    }
 }

@@ -202,17 +202,14 @@
             <DockPanel Grid.Column="4" Margin="8">
                 <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
                     <Button Content="Continue →" Padding="10,3" DockPanel.Dock="Right"
+                            Command="{Binding ContinueCommand}"
                             IsEnabled="{Binding SelectedFileCount}" />
                 </DockPanel>
 
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <!-- Top: Staged (checked) files -->
-                    <Expander Grid.Row="0" IsExpanded="True" Margin="0,0,0,4">
+                <DockPanel>
+                    <!-- Top: Staged (checked) files — sizes to content, collapses to header -->
+                    <Expander DockPanel.Dock="Top" IsExpanded="True" Margin="0,0,0,4"
+                              MaxHeight="300">
                         <Expander.Header>
                             <TextBlock>
                                 <Run Text="Staged (" /><Run Text="{Binding StagedSelectionCount, Mode=OneWay}" /><Run Text=")" FontWeight="SemiBold" />
@@ -262,8 +259,8 @@
                         </DockPanel>
                     </Expander>
 
-                    <!-- Bottom: Committed (selected for processing) files -->
-                    <Expander Grid.Row="1" IsExpanded="True" Margin="0,4,0,0">
+                    <!-- Bottom: Committed (selected for processing) files — fills remaining -->
+                    <Expander IsExpanded="True" Margin="0,4,0,0">
                         <Expander.Header>
                             <TextBlock>
                                 <Run Text="Selected for Processing (" /><Run Text="{Binding SelectedFileCount, Mode=OneWay}" /><Run Text=")" FontWeight="SemiBold" />
@@ -308,7 +305,7 @@
                             </ListBox>
                         </DockPanel>
                     </Expander>
-                </Grid>
+                </DockPanel>
             </DockPanel>
         </Grid>
     </Grid>

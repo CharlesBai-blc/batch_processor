@@ -4,12 +4,190 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:S3BatchProcessor.App.ViewModels"
+             xmlns:conv="clr-namespace:S3BatchProcessor.App.Converters"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:JobAssignmentViewModel}"
-             d:DesignHeight="250" d:DesignWidth="900">
-    <Grid>
-        <TextBlock Text="Job Assignment — not yet implemented"
-                   HorizontalAlignment="Center" VerticalAlignment="Center"
-                   Foreground="Gray" FontSize="16" />
-    </Grid>
+             d:DesignHeight="400" d:DesignWidth="1050">
+    <UserControl.Resources>
+        <conv:MultiValueArrayConverter x:Key="MultiValueArray" />
+        <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
+
+    <DockPanel Margin="6">
+        <!-- Top config bar -->
+        <Border DockPanel.Dock="Top" Background="#F5F5F5" Padding="8" CornerRadius="3" Margin="0,0,0,6">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <WrapPanel Grid.Row="0">
+                    <TextBlock Text="Executable:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                    <TextBox Text="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}"
+                             Width="300" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <TextBlock Text="Output S3 Prefix:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                    <TextBox Text="{Binding OutputS3Prefix, UpdateSourceTrigger=PropertyChanged}"
+                             Width="320" VerticalAlignment="Center" />
+                </WrapPanel>
+                <WrapPanel Grid.Row="1" Margin="0,4,0,0">
+                    <Button Content="Auto-Distribute" Command="{Binding AutoDistributeCommand}"
+                            Padding="10,3" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <Button Content="Clear All Assignments" Command="{Binding ClearAssignmentsCommand}"
+                            Padding="10,3" VerticalAlignment="Center" />
+                </WrapPanel>
+            </Grid>
+        </Border>
+
+        <!-- Validation error banner -->
+        <Border DockPanel.Dock="Bottom" Background="#FFF3E0" BorderBrush="#FF9800" BorderThickness="1"
+                CornerRadius="3" Padding="10,6" Margin="0,4,0,0"
+                Visibility="{Binding HasValidationError, Converter={StaticResource BoolToVis}}">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="✕" Background="Transparent" BorderThickness="0"
+                        FontSize="12" Cursor="Hand" VerticalAlignment="Top"
+                        Command="{Binding DismissValidationCommand}" />
+                <StackPanel>
+                    <TextBlock Text="Cannot run — fix the following:" FontWeight="Bold"
+                               Foreground="#E65100" Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding ValidationError}" Foreground="#BF360C"
+                               TextWrapping="Wrap" FontSize="11.5" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Bottom bar -->
+        <Border DockPanel.Dock="Bottom" Padding="6,6,6,0">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Run Processing ▶"
+                        Command="{Binding RunCommand}"
+                        Padding="16,6" FontWeight="Bold" FontSize="13" />
+                <TextBlock VerticalAlignment="Center" FontSize="12">
+                    <Run Text="Unassigned: " />
+                    <Run Text="{Binding UnassignedCount, Mode=OneWay}" FontWeight="Bold" />
+                    <Run Text="  |  Total: " />
+                    <Run Text="{Binding TotalFileCount, Mode=OneWay}" FontWeight="Bold" />
+                    <Run Text=" files" />
+                </TextBlock>
+            </DockPanel>
+        </Border>
+
+        <!-- Main content -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="260" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: Unassigned files pool (multi-select) -->
+            <DockPanel Grid.Column="0" Margin="0,0,4,0">
+                <TextBlock DockPanel.Dock="Top" FontWeight="Bold" FontSize="13" Margin="0,0,0,4">
+                    <Run Text="Unassigned Files (" /><Run Text="{Binding UnassignedCount, Mode=OneWay}" /><Run Text=")" />
+                </TextBlock>
+                <TextBlock DockPanel.Dock="Top" FontSize="10" Foreground="#888" Margin="0,0,0,4"
+                           Text="Select files, then click [+ Add Files] on a target instance." />
+                <ListBox x:Name="UnassignedList"
+                         ItemsSource="{Binding UnassignedFiles}"
+                         SelectionMode="Extended"
+                         SelectionChanged="UnassignedList_SelectionChanged"
+                         BorderThickness="1"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <DockPanel Margin="2,2,2,2">
+                                <TextBlock DockPanel.Dock="Bottom" Text="{Binding BucketName}"
+                                           FontSize="10" Foreground="Gray" />
+                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                           FontSize="11.5" />
+                            </DockPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+
+            <GridSplitter Grid.Column="1" Width="3" HorizontalAlignment="Center"
+                          VerticalAlignment="Stretch" Background="LightGray"
+                          ResizeBehavior="PreviousAndNext" />
+
+            <!-- Right: Instance cards with assigned files and [+ Add Files] -->
+            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Margin="4,0,0,0">
+                <ItemsControl ItemsSource="{Binding Assignments}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="#BBB" BorderThickness="1" CornerRadius="4"
+                                    Padding="10" Margin="0,0,0,8" Background="#FAFAFA">
+                                <DockPanel>
+                                    <!-- Card header -->
+                                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock FontWeight="Bold" FontSize="13"
+                                                       Text="{Binding Instance.NameTag}" />
+                                            <TextBlock Margin="8,0,0,0" Foreground="Gray" FontSize="11"
+                                                       VerticalAlignment="Center"
+                                                       Text="{Binding Instance.InstanceType}" />
+                                            <TextBlock Margin="6,0,0,0" Foreground="Gray" FontSize="11"
+                                                       VerticalAlignment="Center"
+                                                       Text="{Binding Instance.InstanceId}" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <TextBlock FontSize="11" Foreground="#555" VerticalAlignment="Center"
+                                                       Margin="0,0,8,0">
+                                                <Run Text="{Binding Files.Count, Mode=OneWay}" />
+                                                <Run Text=" file(s)" />
+                                            </TextBlock>
+                                            <Button Content="+ Add Files"
+                                                    Padding="8,3" FontSize="11" FontWeight="SemiBold"
+                                                    Command="{Binding DataContext.AddSelectedToInstanceCommand,
+                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}" />
+                                        </StackPanel>
+                                    </DockPanel>
+
+                                    <!-- Assigned files list -->
+                                    <Border Background="White" BorderBrush="#DDD" BorderThickness="1"
+                                            CornerRadius="2" Padding="4" MinHeight="30">
+                                        <ItemsControl ItemsSource="{Binding Files}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapPanel />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Background="#EEF2FF" BorderBrush="#C5CAE9"
+                                                            BorderThickness="1" CornerRadius="3"
+                                                            Padding="6,2" Margin="2">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="📄 " FontSize="11" VerticalAlignment="Center" />
+                                                            <TextBlock Text="{Binding Name}" FontSize="11"
+                                                                       VerticalAlignment="Center"
+                                                                       MaxWidth="200" TextTrimming="CharacterEllipsis" />
+                                                            <Button Content="✕" FontSize="9" Padding="4,0"
+                                                                    Margin="4,0,0,0" VerticalAlignment="Center"
+                                                                    Background="Transparent" BorderThickness="0"
+                                                                    Cursor="Hand"
+                                                                    Command="{Binding DataContext.RemoveFileFromInstanceCommand,
+                                                                        RelativeSource={RelativeSource AncestorType=UserControl}}">
+                                                                <Button.CommandParameter>
+                                                                    <MultiBinding Converter="{StaticResource MultiValueArray}">
+                                                                        <Binding />
+                                                                        <Binding RelativeSource="{RelativeSource AncestorType=Border, AncestorLevel=2}"
+                                                                                 Path="DataContext" />
+                                                                    </MultiBinding>
+                                                                </Button.CommandParameter>
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Border>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
 </UserControl>

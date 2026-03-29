@@ -44,8 +44,25 @@ public partial class Ec2ManagerViewModel : ObservableObject
     [ObservableProperty]
     private bool _isAutoRefreshEnabled = true;
 
+    public event Action? ContinueRequested;
+
     public ObservableCollection<Ec2InstanceItem> Instances { get; } = new();
     public ObservableCollection<Ec2InstanceItem> SelectedInstances { get; } = new();
+
+    private ICollectionView? _selectedInstancesView;
+    public ICollectionView SelectedInstancesView
+    {
+        get
+        {
+            if (_selectedInstancesView is null)
+            {
+                _selectedInstancesView = CollectionViewSource.GetDefaultView(SelectedInstances);
+                _selectedInstancesView.GroupDescriptions.Add(
+                    new PropertyGroupDescription(nameof(Ec2InstanceItem.Region)));
+            }
+            return _selectedInstancesView;
+        }
+    }
 
     partial void OnIsAutoRefreshEnabledChanged(bool value)
     {
@@ -144,6 +161,20 @@ public partial class Ec2ManagerViewModel : ObservableObject
     }
 
     public bool IsSelected(Ec2InstanceItem instance) => SelectedInstances.Contains(instance);
+
+    [RelayCommand]
+    private void ClearSelected()
+    {
+        SelectedInstances.Clear();
+        SelectedInstanceCount = 0;
+    }
+
+    [RelayCommand]
+    private void Continue()
+    {
+        if (SelectedInstanceCount <= 0) return;
+        ContinueRequested?.Invoke();
+    }
 
     [RelayCommand]
     private async Task RunSsmTestAsync(Ec2InstanceItem? instance)

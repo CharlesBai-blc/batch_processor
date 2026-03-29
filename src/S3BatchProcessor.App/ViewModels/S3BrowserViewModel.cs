@@ -16,6 +16,7 @@ public partial class S3BrowserViewModel : ObservableObject
     private readonly HashSet<string> _stagedSelections = new(StringComparer.Ordinal);
     private readonly Dictionary<string, S3ObjectItem> _stagedItemIndex = new(StringComparer.Ordinal);
     private readonly HashSet<string> _committedSelectionKeys = new(StringComparer.Ordinal);
+    public event Action? ContinueRequested;
 
     public S3BrowserViewModel(IS3Service s3Service, IAwsConnectionService connectionService)
     {
@@ -421,6 +422,13 @@ public partial class S3BrowserViewModel : ObservableObject
         CommittedSelections.Clear();
         _committedSelectionKeys.Clear();
         UpdateSelectionSummary();
+    }
+
+    [RelayCommand]
+    private void Continue()
+    {
+        if (SelectedFileCount <= 0) return;
+        ContinueRequested?.Invoke();
     }
 
 

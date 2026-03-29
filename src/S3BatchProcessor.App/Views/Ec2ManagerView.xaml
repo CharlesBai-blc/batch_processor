@@ -30,139 +30,165 @@
                        FontSize="18" Foreground="Gray" />
         </Border>
 
-        <DockPanel Margin="8">
-            <!-- Top bar -->
-            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                <TextBlock Text="On-Demand Instances" FontWeight="SemiBold" FontSize="16"
-                           VerticalAlignment="Center" DockPanel.Dock="Left" />
-                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-                    <CheckBox Content="Auto-refresh" IsChecked="{Binding IsAutoRefreshEnabled}"
-                              VerticalAlignment="Center" Margin="0,0,12,0" />
-                    <Button Content="Refresh" Command="{Binding RefreshInstancesCommand}" Padding="12,4" />
-                </StackPanel>
-            </DockPanel>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="1" />
+                <ColumnDefinition Width="220" />
+            </Grid.ColumnDefinitions>
 
-            <!-- Bottom bar -->
-            <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-                <Button Content="Continue →" DockPanel.Dock="Right" Padding="12,4"
-                        IsEnabled="{Binding SelectedInstanceCount}" />
-                <TextBlock VerticalAlignment="Center">
-                    <Run Text="{Binding SelectedInstanceCount, Mode=OneWay}" />
-                    <Run Text=" instances selected" />
-                </TextBlock>
-            </DockPanel>
+            <!-- LEFT: Instance browser -->
+            <DockPanel Grid.Column="0" Margin="8">
+                <!-- Top bar -->
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <TextBlock Text="On-Demand Instances" FontWeight="SemiBold" FontSize="16"
+                               VerticalAlignment="Center" DockPanel.Dock="Left" />
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
+                        <CheckBox Content="Auto-refresh" IsChecked="{Binding IsAutoRefreshEnabled}"
+                                  VerticalAlignment="Center" Margin="0,0,12,0" />
+                        <Button Content="Refresh" Command="{Binding RefreshInstancesCommand}" Padding="12,4" />
+                    </StackPanel>
+                </DockPanel>
 
-            <!-- Instance cards -->
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding InstancesView}">
-                    <ItemsControl.GroupStyle>
-                        <GroupStyle>
-                            <GroupStyle.HeaderTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
-                                               Foreground="#555555" FontSize="13"
-                                               Margin="0,12,0,6" />
-                                </DataTemplate>
-                            </GroupStyle.HeaderTemplate>
-                        </GroupStyle>
-                    </ItemsControl.GroupStyle>
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="{x:Type models:Ec2InstanceItem}">
-                            <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="4"
-                                    Padding="12" Margin="0,0,10,10" Width="210">
-                                <StackPanel>
-                                    <TextBlock Text="{Binding NameTag}" FontWeight="SemiBold"
-                                               FontSize="13" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{Binding InstanceId}" Foreground="Gray"
-                                               FontSize="10" Margin="0,1,0,4" />
-                                    <TextBlock Text="{Binding InstanceType}" FontSize="12"
-                                               Margin="0,0,0,4" />
+                <!-- Instance cards -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{Binding InstancesView}">
+                        <ItemsControl.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                                   Foreground="#555555" FontSize="13"
+                                                   Margin="0,12,0,6" />
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ItemsControl.GroupStyle>
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type models:Ec2InstanceItem}">
+                                <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="4"
+                                        Padding="12" Margin="0,0,10,10" Width="210">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding NameTag}" FontWeight="SemiBold"
+                                                   FontSize="13" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding InstanceId}" Foreground="Gray"
+                                                   FontSize="10" Margin="0,1,0,4" />
+                                        <TextBlock Text="{Binding InstanceType}" FontSize="12"
+                                                   Margin="0,0,0,4" />
 
-                                    <!-- State indicator -->
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                                        <Ellipse Width="10" Height="10" Margin="0,0,6,0"
-                                                 Fill="{Binding State, Converter={StaticResource StateColorConverter}}" />
-                                        <TextBlock Text="{Binding State}" FontSize="12" />
+                                        <!-- State indicator -->
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                            <Ellipse Width="10" Height="10" Margin="0,0,6,0"
+                                                     Fill="{Binding State, Converter={StaticResource StateColorConverter}}" />
+                                            <TextBlock Text="{Binding State}" FontSize="12" />
+                                        </StackPanel>
+
+                                        <TextBlock FontSize="11" Foreground="Gray" Margin="0,0,0,2">
+                                            <Run Text="AZ: " />
+                                            <Run Text="{Binding AvailabilityZone, Mode=OneWay}" />
+                                        </TextBlock>
+
+                                        <!-- SSM Test result -->
+                                        <TextBlock Text="{Binding SsmTestResult}" FontSize="10"
+                                                   Foreground="#666666" Margin="0,2,0,4"
+                                                   TextWrapping="Wrap"
+                                                   Visibility="{Binding SsmTestResult, Converter={StaticResource BoolToVisConverter}}" />
+
+                                        <!-- Buttons -->
+                                        <WrapPanel Margin="0,4,0,0">
+                                            <Button Content="Select" Padding="8,3" Margin="0,0,4,4"
+                                                    FontSize="11"
+                                                    Command="{Binding DataContext.ToggleSelectCommand,
+                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}" />
+                                            <Button Content="SSM Test" Padding="8,3" Margin="0,0,4,4"
+                                                    FontSize="11"
+                                                    Command="{Binding DataContext.RunSsmTestCommand,
+                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="Running">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                        </WrapPanel>
                                     </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
 
-                                    <TextBlock FontSize="11" Foreground="Gray" Margin="0,0,0,2">
-                                        <Run Text="AZ: " />
-                                        <Run Text="{Binding AvailabilityZone, Mode=OneWay}" />
-                                    </TextBlock>
+            <GridSplitter Grid.Column="1" Width="1" HorizontalAlignment="Stretch"
+                          Background="#DDDDDD" />
 
-                                    <!-- SSM Test result -->
-                                    <TextBlock Text="{Binding SsmTestResult}" FontSize="10"
-                                               Foreground="#666666" Margin="0,2,0,4"
-                                               TextWrapping="Wrap"
-                                               Visibility="{Binding SsmTestResult, Converter={StaticResource BoolToVisConverter}}" />
+            <!-- RIGHT: Selected instances pane -->
+            <DockPanel Grid.Column="2" Margin="8">
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                    <Button Content="Continue →" Padding="10,3" DockPanel.Dock="Right"
+                            Command="{Binding ContinueCommand}"
+                            IsEnabled="{Binding SelectedInstanceCount}" />
+                </DockPanel>
 
-                                    <!-- Buttons -->
-                                    <WrapPanel Margin="0,4,0,0">
-                                        <Button Content="Start" Padding="8,3" Margin="0,0,4,4"
-                                                FontSize="11"
-                                                Command="{Binding DataContext.StartInstanceCommand,
-                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding}">
-                                            <Button.Style>
-                                                <Style TargetType="Button">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding State}" Value="Stopped">
-                                                            <Setter Property="Visibility" Value="Visible" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Button.Style>
-                                        </Button>
-                                        <Button Content="Stop" Padding="8,3" Margin="0,0,4,4"
-                                                FontSize="11"
-                                                Command="{Binding DataContext.StopInstanceCommand,
-                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding}">
-                                            <Button.Style>
-                                                <Style TargetType="Button">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding State}" Value="Running">
-                                                            <Setter Property="Visibility" Value="Visible" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Button.Style>
-                                        </Button>
-                                        <Button Content="Select" Padding="8,3" Margin="0,0,4,4"
-                                                FontSize="11"
-                                                Command="{Binding DataContext.ToggleSelectCommand,
-                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding}" />
-                                        <Button Content="SSM Test" Padding="8,3" Margin="0,0,4,4"
-                                                FontSize="11"
-                                                Command="{Binding DataContext.RunSsmTestCommand,
-                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding}">
-                                            <Button.Style>
-                                                <Style TargetType="Button">
-                                                    <Setter Property="Visibility" Value="Collapsed" />
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding State}" Value="Running">
-                                                            <Setter Property="Visibility" Value="Visible" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Button.Style>
-                                        </Button>
-                                    </WrapPanel>
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-        </DockPanel>
+                <DockPanel>
+                    <Expander DockPanel.Dock="Top" IsExpanded="True">
+                        <Expander.Header>
+                            <TextBlock>
+                                <Run Text="Selected Instances (" /><Run Text="{Binding SelectedInstanceCount, Mode=OneWay}" /><Run Text=")" FontWeight="SemiBold" />
+                            </TextBlock>
+                        </Expander.Header>
+                        <DockPanel>
+                            <DockPanel DockPanel.Dock="Bottom" Margin="0,4,0,0">
+                                <Button Content="Clear All" Padding="8,3"
+                                        Command="{Binding ClearSelectedCommand}"
+                                        IsEnabled="{Binding SelectedInstanceCount}" />
+                            </DockPanel>
+                            <ListBox ItemsSource="{Binding SelectedInstancesView}"
+                                     BorderThickness="1" BorderBrush="#CCCCCC">
+                                <ListBox.GroupStyle>
+                                    <GroupStyle>
+                                        <GroupStyle.HeaderTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                                           Foreground="#555555" FontSize="11"
+                                                           Margin="4,6,0,2" />
+                                            </DataTemplate>
+                                        </GroupStyle.HeaderTemplate>
+                                    </GroupStyle>
+                                </ListBox.GroupStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type models:Ec2InstanceItem}">
+                                        <DockPanel Margin="8,1,0,1">
+                                            <Button Content="✕" DockPanel.Dock="Right" Padding="4,0"
+                                                    FontSize="10" Background="Transparent" BorderThickness="0"
+                                                    Cursor="Hand" VerticalAlignment="Center"
+                                                    ToolTip="Remove"
+                                                    Command="{Binding DataContext.ToggleSelectCommand,
+                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}" />
+                                            <TextBlock Text="{Binding NameTag}" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       ToolTip="{Binding InstanceId}" />
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+                    </Expander>
+                </DockPanel>
+            </DockPanel>
+        </Grid>
     </Grid>
 </UserControl>

@@ -1,0 +1,35 @@
+## Build outputs
+bin/
+obj/
+publish/
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+
+## IDE / tooling
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+## Logs
+*.log
+
+## AWS credentials (never commit these)
+.aws/
+credentials
+*.pem
+*.key
+
+## Application settings with secrets
+appsettings.*.json
+!appsettings.json
