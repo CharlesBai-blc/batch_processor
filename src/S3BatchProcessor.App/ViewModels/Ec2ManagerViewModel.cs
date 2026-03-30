@@ -4,6 +4,7 @@ using System.Windows.Data;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Configuration;
 using S3BatchProcessor.App.Models;
 using S3BatchProcessor.App.Services;
 
@@ -13,14 +14,23 @@ public partial class Ec2ManagerViewModel : ObservableObject
 {
     private readonly IEc2Service _ec2Service;
     private readonly ISsmService _ssmService;
-    private readonly IS3Service _s3Service;
     private readonly DispatcherTimer _refreshTimer;
+    private readonly string[] _scanRegions;
 
-    public Ec2ManagerViewModel(IEc2Service ec2Service, ISsmService ssmService, IS3Service s3Service)
+    private static readonly string[] DefaultRegions =
+    [
+        "us-east-1", "us-east-2", "us-west-1", "us-west-2",
+        "eu-west-1", "eu-west-2", "eu-central-1",
+        "ap-southeast-1", "ap-southeast-2", "ap-northeast-1"
+    ];
+
+    public Ec2ManagerViewModel(IEc2Service ec2Service, ISsmService ssmService, IConfiguration configuration)
     {
         _ec2Service = ec2Service;
         _ssmService = ssmService;
-        _s3Service = s3Service;
+
+        var configRegions = configuration.GetSection("Aws:ScanRegions").Get<string[]>();
+        _scanRegions = configRegions is { Length: > 0 } ? configRegions : DefaultRegions;
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _refreshTimer.Tick += async (_, _) => await RefreshInstancesAsync();
@@ -73,19 +83,12 @@ public partial class Ec2ManagerViewModel : ObservableObject
     [RelayCommand]
     private async Task RefreshInstancesAsync()
     {
-        var regions = _s3Service.KnownBucketRegions;
-        if (regions.Count == 0)
-        {
-            ErrorMessage = "No S3 bucket regions known yet. Browse S3 buckets first.";
-            return;
-        }
-
         try
         {
             IsLoading = true;
             ErrorMessage = null;
 
-            var instances = await _ec2Service.DescribeInstancesAsync(regions);
+            var instances = await _ec2Service.DescribeInstancesAsync(_scanRegions);
 
             var selectedIds = SelectedInstances.Select(i => i.InstanceId).ToHashSet();
             Instances.Clear();
@@ -186,7 +189,7 @@ public partial class Ec2ManagerViewModel : ObservableObject
 
         try
         {
-            const string testCommand = "echo \"test\" > /tmp/batch-processor-test-$(date +%s).txt && echo \"SUCCESS\"";
+            const string testCommand = "Write-Output 'SUCCESS'";
             var commandId = await _ssmService.SendCommandAsync(instance.InstanceId, testCommand, instance.Region);
 
             JobStatus status;
@@ -199,8 +202,8 @@ public partial class Ec2ManagerViewModel : ObservableObject
 
             if (status == JobStatus.Success)
             {
-                var output = await _ssmService.GetCommandOutputAsync(commandId, instance.InstanceId, instance.Region);
-                instance.SsmTestResult = $"OK: {output?.Trim()}";
+                var (stdout, _) = await _ssmService.GetCommandOutputAsync(commandId, instance.InstanceId, instance.Region);
+                instance.SsmTestResult = $"OK: {stdout?.Trim()}";
             }
             else
             {

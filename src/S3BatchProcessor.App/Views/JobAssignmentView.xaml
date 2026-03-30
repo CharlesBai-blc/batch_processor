@@ -7,7 +7,7 @@
              xmlns:conv="clr-namespace:S3BatchProcessor.App.Converters"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:JobAssignmentViewModel}"
-             d:DesignHeight="400" d:DesignWidth="1050">
+             d:DesignHeight="500" d:DesignWidth="1050">
     <UserControl.Resources>
         <conv:MultiValueArrayConverter x:Key="MultiValueArray" />
         <conv:BoolToVisibilityConverter x:Key="BoolToVis" />
@@ -20,22 +20,146 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
+
+                <!-- Row 0: Processor S3 source + Browse -->
                 <WrapPanel Grid.Row="0">
-                    <TextBlock Text="Executable:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
-                    <TextBox Text="{Binding ExecutablePath, UpdateSourceTrigger=PropertyChanged}"
-                             Width="300" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <TextBlock Text="Processor:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                    <Border Background="White" BorderBrush="#CCC" BorderThickness="1" CornerRadius="2"
+                            Padding="6,2" MinWidth="380" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <TextBlock FontSize="11.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="{Binding DeploySource}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DeploySource}" Value="">
+                                            <Setter Property="Text" Value="(none selected)" />
+                                            <Setter Property="Foreground" Value="Gray" />
+                                            <Setter Property="FontStyle" Value="Italic" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Border>
+                    <Button Content="Browse S3..." Command="{Binding OpenDeployPickerCommand}"
+                            Padding="8,3" FontSize="11" VerticalAlignment="Center" />
+                </WrapPanel>
+
+                <!-- Row 1: Processor Dir, Job Log Dir, Output S3 -->
+                <WrapPanel Grid.Row="1" Margin="0,4,0,0">
+                    <TextBlock Text="Processor Dir:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                    <TextBox Text="{Binding ProcessorDirectory, UpdateSourceTrigger=PropertyChanged}"
+                             Width="200" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <TextBlock Text="Job Log Dir:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                    <TextBox Text="{Binding JobLogDirectory, UpdateSourceTrigger=PropertyChanged}"
+                             Width="180" VerticalAlignment="Center" Margin="0,0,12,0" />
                     <TextBlock Text="Output S3 Prefix:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
                     <TextBox Text="{Binding OutputS3Prefix, UpdateSourceTrigger=PropertyChanged}"
-                             Width="320" VerticalAlignment="Center" />
+                             Width="280" VerticalAlignment="Center" />
                 </WrapPanel>
-                <WrapPanel Grid.Row="1" Margin="0,4,0,0">
+
+                <!-- Row 2: Actions -->
+                <WrapPanel Grid.Row="2" Margin="0,4,0,0">
                     <Button Content="Auto-Distribute" Command="{Binding AutoDistributeCommand}"
                             Padding="10,3" VerticalAlignment="Center" Margin="0,0,6,0" />
                     <Button Content="Clear All Assignments" Command="{Binding ClearAssignmentsCommand}"
                             Padding="10,3" VerticalAlignment="Center" />
                 </WrapPanel>
             </Grid>
+        </Border>
+
+        <!-- Deploy picker panel -->
+        <Border DockPanel.Dock="Top" Background="#FAFAFA" BorderBrush="#1976D2" BorderThickness="1"
+                CornerRadius="3" Padding="8" Margin="0,0,0,6" MaxHeight="240"
+                Visibility="{Binding IsDeployPickerOpen, Converter={StaticResource BoolToVis}}">
+            <DockPanel>
+                <!-- Header with Confirm / Cancel -->
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                    <TextBlock Text="Select Processor from S3" FontWeight="Bold" FontSize="12"
+                               VerticalAlignment="Center" />
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock VerticalAlignment="Center" Margin="0,0,8,0" FontSize="11" Foreground="#555">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding PendingDeploySelection}" Value="{x:Null}">
+                                            <Setter Property="Text" Value="Click a file to select it" />
+                                            <Setter Property="FontStyle" Value="Italic" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <Border Background="#E8F5E9" CornerRadius="2" Padding="6,1" Margin="0,0,6,0"
+                                VerticalAlignment="Center"
+                                Visibility="{Binding PendingDeploySelection, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="{Binding PendingDeploySelection.Name}" FontSize="11"
+                                       FontWeight="SemiBold" Foreground="#2E7D32" />
+                        </Border>
+                        <Button Content="Confirm" Padding="10,2" FontWeight="SemiBold" Margin="0,0,4,0"
+                                Command="{Binding ConfirmDeployPickerCommand}" />
+                        <Button Content="Cancel" Padding="8,2"
+                                Command="{Binding CancelDeployPickerCommand}" />
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- Bucket list + File browser -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="200" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <DockPanel Grid.Column="0" Margin="0,0,4,0">
+                        <TextBlock DockPanel.Dock="Top" Text="Bucket:" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,2" />
+                        <ListBox ItemsSource="{Binding DeployBuckets}"
+                                 SelectedValue="{Binding SelectedDeployBucket}"
+                                 SelectedValuePath="Name"
+                                 DisplayMemberPath="Name"
+                                 FontSize="11" BorderThickness="1" />
+                    </DockPanel>
+
+                    <DockPanel Grid.Column="1">
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,2">
+                            <TextBlock Text="Files:" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Button DockPanel.Dock="Right" Content="Up" Padding="6,1" FontSize="10"
+                                    Command="{Binding DeployNavigateUpCommand}" HorizontalAlignment="Right" />
+                            <TextBlock Text="{Binding DeployBrowsePrefix}" FontSize="10" Foreground="Gray"
+                                       Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <ListBox ItemsSource="{Binding DeployFiles}"
+                                 SelectedItem="{Binding PendingDeploySelection, Mode=TwoWay}"
+                                 BorderThickness="1" FontSize="11"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Cursor="Hand" Margin="2,1">
+                                        <TextBlock.InputBindings>
+                                            <MouseBinding MouseAction="LeftDoubleClick"
+                                                          Command="{Binding DataContext.OpenDeployFolderCommand,
+                                                              RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                          CommandParameter="{Binding}" />
+                                        </TextBlock.InputBindings>
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Text" Value="{Binding Name}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsFolder}" Value="True">
+                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+                </Grid>
+            </DockPanel>
         </Border>
 
         <!-- Validation error banner -->
@@ -79,7 +203,7 @@
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
 
-            <!-- Left: Unassigned files pool (multi-select) -->
+            <!-- Left: Unassigned files pool -->
             <DockPanel Grid.Column="0" Margin="0,0,4,0">
                 <TextBlock DockPanel.Dock="Top" FontWeight="Bold" FontSize="13" Margin="0,0,0,4">
                     <Run Text="Unassigned Files (" /><Run Text="{Binding UnassignedCount, Mode=OneWay}" /><Run Text=")" />
@@ -109,7 +233,7 @@
                           VerticalAlignment="Stretch" Background="LightGray"
                           ResizeBehavior="PreviousAndNext" />
 
-            <!-- Right: Instance cards with assigned files and [+ Add Files] -->
+            <!-- Right: Instance cards -->
             <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Margin="4,0,0,0">
                 <ItemsControl ItemsSource="{Binding Assignments}">
                     <ItemsControl.ItemTemplate>
@@ -117,7 +241,6 @@
                             <Border BorderBrush="#BBB" BorderThickness="1" CornerRadius="4"
                                     Padding="10" Margin="0,0,0,8" Background="#FAFAFA">
                                 <DockPanel>
-                                    <!-- Card header -->
                                     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                                         <StackPanel Orientation="Horizontal">
                                             <TextBlock FontWeight="Bold" FontSize="13"
@@ -143,7 +266,6 @@
                                         </StackPanel>
                                     </DockPanel>
 
-                                    <!-- Assigned files list -->
                                     <Border Background="White" BorderBrush="#DDD" BorderThickness="1"
                                             CornerRadius="2" Padding="4" MinHeight="30">
                                         <ItemsControl ItemsSource="{Binding Files}">
@@ -158,7 +280,6 @@
                                                             BorderThickness="1" CornerRadius="3"
                                                             Padding="6,2" Margin="2">
                                                         <StackPanel Orientation="Horizontal">
-                                                            <TextBlock Text="📄 " FontSize="11" VerticalAlignment="Center" />
                                                             <TextBlock Text="{Binding Name}" FontSize="11"
                                                                        VerticalAlignment="Center"
                                                                        MaxWidth="200" TextTrimming="CharacterEllipsis" />

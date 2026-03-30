@@ -62,13 +62,21 @@
                 <views:Ec2ManagerView DataContext="{Binding Ec2Manager}" />
             </TabItem>
             <TabItem Header="3. Assign &amp; Run">
-                <Grid>
+                <Grid x:Name="AssignRunSplitGrid">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="*" />
-                        <RowDefinition Height="*" />
+                        <RowDefinition Height="3*" MinHeight="160" />
+                        <RowDefinition Height="5" />
+                        <RowDefinition Height="*" MinHeight="120" />
                     </Grid.RowDefinitions>
                     <views:JobAssignmentView Grid.Row="0" DataContext="{Binding JobAssignment}" />
-                    <views:JobExecutionView Grid.Row="1" DataContext="{Binding JobExecution}" />
+                    <GridSplitter Grid.Row="1"
+                                  Height="5"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Center"
+                                  Background="#D3D3D3"
+                                  ShowsPreview="False"
+                                  ResizeDirection="Rows" />
+                    <views:JobExecutionView Grid.Row="2" DataContext="{Binding JobExecution}" />
                 </Grid>
             </TabItem>
         </TabControl>

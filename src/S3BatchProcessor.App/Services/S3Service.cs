@@ -113,6 +113,7 @@ public class S3Service : IS3Service
     {
         _logger.LogDebug("Listing objects in {Bucket}/{Prefix}", bucketName, prefix);
 
+        var bucketRegion = await GetBucketRegionAsync(bucketName, cancellationToken);
         var client = await GetClientForBucketAsync(bucketName, cancellationToken);
 
         var request = new ListObjectsV2Request
@@ -138,6 +139,7 @@ public class S3Service : IS3Service
                 items.Add(new S3ObjectItem
                 {
                     BucketName = bucketName,
+                    BucketRegion = bucketRegion,
                     Key = commonPrefix,
                     Name = folderName + "/",
                     IsFolder = true,
@@ -158,6 +160,7 @@ public class S3Service : IS3Service
                 items.Add(new S3ObjectItem
                 {
                     BucketName = bucketName,
+                    BucketRegion = bucketRegion,
                     Key = obj.Key,
                     Name = name,
                     Size = obj.Size ?? 0,

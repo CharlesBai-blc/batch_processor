@@ -47,7 +47,9 @@ public partial class JobExecutionViewModel : ObservableObject
     public async Task StartExecution(
         IList<JobAssignment> assignments,
         string executablePath,
-        string outputS3Prefix)
+        string outputS3Prefix,
+        string jobLogDirectory,
+        string deploySource)
     {
         Results.Clear();
         PreFlightLog.Clear();
@@ -86,6 +88,8 @@ public partial class JobExecutionViewModel : ObservableObject
                 assignments,
                 executablePath,
                 outputS3Prefix,
+                jobLogDirectory,
+                deploySource,
                 OnResultUpdated,
                 _cts.Token);
 

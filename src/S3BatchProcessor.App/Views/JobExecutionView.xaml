@@ -83,48 +83,65 @@
         </TextBlock>
 
         <!-- Results list -->
-        <ListView ItemsSource="{Binding Results}" BorderThickness="1">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="Instance" Width="140">
-                        <GridViewColumn.CellTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Instance.NameTag}" TextTrimming="CharacterEllipsis" />
-                            </DataTemplate>
-                        </GridViewColumn.CellTemplate>
-                    </GridViewColumn>
-                    <GridViewColumn Header="File" Width="200">
-                        <GridViewColumn.CellTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding File.Name}" TextTrimming="CharacterEllipsis" />
-                            </DataTemplate>
-                        </GridViewColumn.CellTemplate>
-                    </GridViewColumn>
-                    <GridViewColumn Header="Status" Width="90">
-                        <GridViewColumn.CellTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Status}" FontWeight="SemiBold"
-                                           Foreground="{Binding Status, Converter={StaticResource StatusToColor}}" />
-                            </DataTemplate>
-                        </GridViewColumn.CellTemplate>
-                    </GridViewColumn>
-                    <GridViewColumn Header="Duration" Width="80">
-                        <GridViewColumn.CellTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Duration}" />
-                            </DataTemplate>
-                        </GridViewColumn.CellTemplate>
-                    </GridViewColumn>
-                    <GridViewColumn Header="Output" Width="250">
-                        <GridViewColumn.CellTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Output}" TextTrimming="CharacterEllipsis"
-                                           ToolTip="{Binding Output}" Foreground="Gray" />
-                            </DataTemplate>
-                        </GridViewColumn.CellTemplate>
-                    </GridViewColumn>
-                </GridView>
-            </ListView.View>
-        </ListView>
+        <DataGrid ItemsSource="{Binding Results}" AutoGenerateColumns="False"
+                  IsReadOnly="True" BorderThickness="1"
+                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                  HorizontalGridLinesBrush="#E0E0E0"
+                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                  ScrollViewer.CanContentScroll="False"
+                  CanUserResizeRows="True"
+                  SelectionMode="Single"
+                  MouseLeftButtonUp="DataGrid_MouseLeftButtonUp">
+            <DataGrid.Resources>
+                <Style x:Key="CopyableText" TargetType="TextBox">
+                    <Setter Property="IsReadOnly" Value="True" />
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="TextWrapping" Value="Wrap" />
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="FontSize" Value="12" />
+                </Style>
+            </DataGrid.Resources>
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Instance" Width="110"
+                                    Binding="{Binding Instance.NameTag}" />
+                <DataGridTextColumn Header="File" Width="140"
+                                    Binding="{Binding File.Name}" />
+                <DataGridTemplateColumn Header="Status" Width="75">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Status}" FontWeight="SemiBold"
+                                       Foreground="{Binding Status, Converter={StaticResource StatusToColor}}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTextColumn Header="Duration" Width="65"
+                                    Binding="{Binding Duration}" />
+                <DataGridTemplateColumn Header="Output" Width="*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ScrollViewer MaxHeight="100" VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <TextBox Text="{Binding Output, Mode=OneWay}"
+                                         Style="{StaticResource CopyableText}"
+                                         Foreground="Gray" />
+                            </ScrollViewer>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <DataGridTemplateColumn Header="Stderr" Width="*">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ScrollViewer MaxHeight="100" VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled">
+                                <TextBox Text="{Binding ErrorOutput, Mode=OneWay}"
+                                         Style="{StaticResource CopyableText}"
+                                         Foreground="#D32F2F" />
+                            </ScrollViewer>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
     </DockPanel>
 </UserControl>

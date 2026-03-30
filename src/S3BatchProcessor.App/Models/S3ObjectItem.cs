@@ -8,6 +8,7 @@ public class S3ObjectItem : INotifyPropertyChanged
     private bool _isStaged;
 
     public string BucketName { get; set; } = string.Empty;
+    public string BucketRegion { get; set; } = string.Empty;
     public string Key { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public long Size { get; set; }

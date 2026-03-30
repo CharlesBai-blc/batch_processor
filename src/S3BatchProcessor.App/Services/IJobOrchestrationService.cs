@@ -13,6 +13,8 @@ public interface IJobOrchestrationService
         IEnumerable<JobAssignment> assignments,
         string executablePath,
         string outputS3Prefix,
+        string jobLogDirectory,
+        string deploySource,
         Action<JobResult> onResultUpdated,
         CancellationToken cancellationToken = default);
 

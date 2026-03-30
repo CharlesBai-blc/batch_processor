@@ -7,6 +7,7 @@ public class JobResult : INotifyPropertyChanged
 {
     private JobStatus _status;
     private string? _output;
+    private string? _errorOutput;
     private DateTime? _startTime;
     private DateTime? _endTime;
 
@@ -36,6 +37,12 @@ public class JobResult : INotifyPropertyChanged
     {
         get => _output;
         set { if (_output != value) { _output = value; OnPropertyChanged(); } }
+    }
+
+    public string? ErrorOutput
+    {
+        get => _errorOutput;
+        set { if (_errorOutput != value) { _errorOutput = value; OnPropertyChanged(); } }
     }
 
     public string Duration

@@ -1,6 +1,7 @@
 using Amazon;
 using Amazon.SimpleSystemsManagement;
 using Amazon.SimpleSystemsManagement.Model;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using S3BatchProcessor.App.Models;
 
@@ -9,11 +10,15 @@ namespace S3BatchProcessor.App.Services;
 public class SsmService : ISsmService
 {
     private readonly ILogger<SsmService> _logger;
+    private readonly int _commandTimeoutSeconds;
     private readonly Dictionary<string, AmazonSimpleSystemsManagementClient> _regionalClients = new();
 
-    public SsmService(ILogger<SsmService> logger)
+    public SsmService(ILogger<SsmService> logger, IConfiguration configuration)
     {
         _logger = logger;
+        _commandTimeoutSeconds = 600;
+        if (int.TryParse(configuration["Ssm:CommandTimeoutSeconds"], out var parsed) && parsed > 0)
+            _commandTimeoutSeconds = parsed;
     }
 
     private AmazonSimpleSystemsManagementClient GetClient(string region)
@@ -34,12 +39,12 @@ public class SsmService : ISsmService
         var response = await client.SendCommandAsync(new SendCommandRequest
         {
             InstanceIds = [instanceId],
-            DocumentName = "AWS-RunShellScript",
+            DocumentName = "AWS-RunPowerShellScript",
             Parameters = new Dictionary<string, List<string>>
             {
                 ["commands"] = [command]
             },
-            TimeoutSeconds = 60
+            TimeoutSeconds = _commandTimeoutSeconds
         }, cancellationToken);
 
         var commandId = response.Command.CommandId;
@@ -67,7 +72,7 @@ public class SsmService : ISsmService
         }
     }
 
-    public async Task<string?> GetCommandOutputAsync(string commandId, string instanceId, string region, CancellationToken cancellationToken = default)
+    public async Task<(string? Stdout, string? Stderr)> GetCommandOutputAsync(string commandId, string instanceId, string region, CancellationToken cancellationToken = default)
     {
         var client = GetClient(region);
 
@@ -77,7 +82,7 @@ public class SsmService : ISsmService
             InstanceId = instanceId
         }, cancellationToken);
 
-        return response.StandardOutputContent;
+        return (response.StandardOutputContent, response.StandardErrorContent);
     }
 
     public async Task CancelCommandAsync(string commandId, string region, CancellationToken cancellationToken = default)
@@ -88,6 +93,32 @@ public class SsmService : ISsmService
         {
             CommandId = commandId
         }, cancellationToken);
+    }
+
+    public async Task<bool> IsInstanceOnlineAsync(string instanceId, string region, CancellationToken cancellationToken = default)
+    {
+        var client = GetClient(region);
+        try
+        {
+            var response = await client.DescribeInstanceInformationAsync(new DescribeInstanceInformationRequest
+            {
+                Filters =
+                [
+                    new InstanceInformationStringFilter
+                    {
+                        Key = "InstanceIds",
+                        Values = [instanceId]
+                    }
+                ]
+            }, cancellationToken);
+
+            return response.InstanceInformationList.Any(i => i.PingStatus == PingStatus.Online);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "SSM ping check failed for {InstanceId}", instanceId);
+            return false;
+        }
     }
 
     private static JobStatus MapStatus(string? statusDetails) => statusDetails switch
