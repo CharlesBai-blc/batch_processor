@@ -33,3 +33,6 @@ credentials
 ## Application settings with secrets
 appsettings.*.json
 !appsettings.json
+
+## Claude
+.claude
