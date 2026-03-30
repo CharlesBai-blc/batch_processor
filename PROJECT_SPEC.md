@@ -2,7 +2,7 @@
 
 ## What This Application Is
 
-A Windows desktop executable that acts as a local command center for dispatching geospatial batch processing jobs. The user selects data files from S3, selects EC2 instances, assigns which files go to which instance, and triggers remote execution of a preset processing executable. Results are collected back to S3.
+A Windows desktop executable that acts as a local command center for dispatching geospatial batch processing jobs. The user selects data files from S3, selects EC2 instances, assigns which files go to which instance, and triggers remote execution. For each data file, the SSM script **generates a unique batch file** (`test_[TIMESTAMP].bat`) on the instance that contains the process command for that specific job. Results are collected back to S3.
 
 The application is NOT a web app. It is a native Windows GUI built in C# / WPF that runs on the operator's local machine and communicates with AWS services via SDK calls.
 
@@ -20,16 +20,22 @@ The operator navigates an S3 bucket browser. They drill into folders, filter by 
 The operator switches to (or sees alongside) an EC2 panel. On-demand instances are displayed as cards showing instance ID, type, state, availability zone, and tags. The operator can start/stop instances from here.
 
 ### Step 4: Assign Files to Instances
-The operator assigns selected S3 files to specific EC2 instances. This is manual — the user decides which files go where. On-demand instances already have copies of these files on their local drives under the same filename, so the assignment is telling the instance which of its local files to process. The UI shows a clear mapping: Instance A → [file1.tif, file2.tif], Instance B → [file3.las].
+The operator assigns selected S3 files to specific EC2 instances. This is manual — the user decides which files go where. Input data files are **pulled from S3 per job** (not assumed pre-loaded). The UI shows a clear mapping: Instance A → [file1.tif, file2.tif], Instance B → [file3.las].
 
 ### Step 5: Execute
-The operator confirms the assignment and hits "Run." The app sends SSM RunCommand to each instance instructing it to execute the preset processing executable against its assigned files. The executable path is preconfigured (same for every instance, every file).
+The operator confirms the assignment and hits "Run." For each data file, the SSM script:
+1. Downloads the input file from S3 to the instance (`C:\data\`)
+2. **Creates a unique batch file** `test_[TIMESTAMP].bat` in a configured jobs directory (`C:\processor\jobs\`) containing the process command for that specific file
+3. Executes the generated `.bat` file
+4. Uploads the result back to S3
+
+No shared `.bat` file is pulled from S3 — each job gets its own locally-generated launcher script.
 
 ### Step 6: Monitor
 The app polls SSM command status and displays progress per instance and per file. Status states: Pending, In Progress, Success, Failed, Timed Out.
 
 ### Step 7: Collect Output
-On successful completion, the processing executable's output (which lands on the EC2 instance's local disk) is pushed back to a designated S3 output path. The app either triggers this as part of the SSM command or runs a follow-up command to sync results.
+On successful completion, the processing executable's output (which lands on the EC2 instance's local disk at `C:\data\output\`) is pushed back to a designated S3 output path. This upload is part of the SSM command script (using `Write-S3Object`).
 
 ---
 
@@ -65,18 +71,19 @@ On successful completion, the processing executable's output (which lands on the
 │   │    S3      │    │     EC2         │    │      SSM         │      │
 │   │            │    │                 │    │                  │      │
 │   │ Input:     │    │ On-demand inst. │    │ RunCommand API   │      │
-│   │ .tif/.las  │    │ w/ local copies │    │                  │      │
-│   │            │    │ of data files   │    │ Sends shell cmds │      │
+│   │ .tif/.las  │    │ w/ process.exe  │    │                  │      │
+│   │            │    │ pre-installed   │    │ Sends PS scripts │      │
 │   │ Output:    │    │                 │    │ to EC2 instances │      │
-│   │ processed  │    │ Preset exe on   │    │                  │      │
-│   │ results    │    │ each instance   │    │ Returns status   │      │
+│   │ processed  │    │ Per-job bats    │    │                  │      │
+│   │ results    │    │ generated local │    │ Returns status   │      │
 │   └────────────┘    └─────────────────┘    └──────────────────┘      │
 │                                                                      │
 │   EC2 Instances have:                                                │
-│   - SSM Agent installed and running                                  │
-│   - IAM role with ssm:* and s3:PutObject permissions                │
-│   - Processing executable pre-installed at a known path              │
-│   - Local copies of data files (same filenames as in S3)             │
+│   - Windows Server (2019/2022) with SSM Agent running                │
+│   - IAM role with ssm:*, s3:GetObject, s3:PutObject                 │
+│   - process.exe pre-installed at C:\processor\                       │
+│   - C:\processor\jobs\ dir for per-job test_[TIMESTAMP].bat files    │
+│   - Input data pulled from S3 per job (NOT pre-loaded)               │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -86,11 +93,13 @@ On successful completion, the processing executable's output (which lands on the
 These must be set up before the app is useful. The app does NOT provision these — it assumes they exist:
 
 1. **S3 Buckets** — Input bucket with .tif/.tiff/.las files. Output bucket (or prefix) for results.
-2. **EC2 On-Demand Instances** — Pre-configured with:
-   - The processing executable installed at a known path (e.g., `/opt/processor/run.sh`)
-   - Local copies of data files on their EBS volumes
-   - SSM Agent installed and running (comes default on Amazon Linux 2, Ubuntu 20.04+)
+2. **EC2 On-Demand Instances** — Windows Server (2019/2022), pre-configured with:
+   - `process.exe` installed at `C:\processor\process.exe` (via AMI, User Data, or manual install)
+   - `C:\processor\jobs\` directory for per-job `test_[TIMESTAMP].bat` files
+   - SSM Agent installed and running (default on AWS Windows AMIs)
+   - AWSPowerShell module available (default on AWS Windows AMIs)
    - IAM Instance Profile with policies for `ssm:*`, `s3:GetObject`, `s3:PutObject`
+   - Input data files are **pulled from S3 per job** — NOT assumed pre-loaded on the instance
 3. **Operator IAM User/Role** — The local AWS credentials need permissions for:
    - `s3:ListBucket`, `s3:ListAllMyBuckets`, `s3:GetObject`
    - `ec2:DescribeInstances`, `ec2:StartInstances`, `ec2:StopInstances`
@@ -158,18 +167,30 @@ All AWS interactions go through interfaces (`IS3Service`, `IEc2Service`, `ISsmSe
 - **AWS-native**: Same mechanism AWS uses internally for fleet management
 - The operator's local machine never directly connects to the EC2 instance. All communication is mediated through the SSM API.
 
-### On-Demand Instances Have Local File Copies
+### Per-Job Batch File Generation (Not Shared S3 Pull)
 
-This is a key architectural assumption. On-demand instances already have the data files on their local EBS volumes with the same filenames as in S3. The "assignment" step is NOT about transferring files — it's about telling the instance which of its already-local files to process. This avoids large S3→EC2 transfers during execution. (Spot instances in a future milestone will need to pull files from S3 first, since they're ephemeral.)
+This is a key architectural decision. For each data file, the SSM script **creates a unique batch file** (`test_[TIMESTAMP].bat`) on the instance containing the process command for that specific job. No shared `.bat` or runner script is pulled from S3 per job. The `process.exe` binary is pre-installed on the instance (via AMI/User Data/manual), and each per-job `.bat` simply invokes it with the right arguments.
+
+Input data files are **pulled from S3 per job** — they are not assumed to be pre-loaded on the instance.
 
 ### Output Collection Strategy
 
-After the processing executable completes, its output is on the EC2 instance's local disk. The SSM command should include a follow-up step to `aws s3 cp` the output back to the designated S3 output prefix. This means the SSM command sent to each instance is a small shell script:
-```bash
-# Pseudocode for the SSM command payload
-cd /data
-/opt/processor/run.sh <filename>
-aws s3 cp /data/output/<filename>.result s3://output-bucket/results/<filename>.result
+After the processing executable completes, its output is on the EC2 instance's local disk at `C:\data\output\`. The SSM command includes a follow-up step using `Write-S3Object` (AWSPowerShell) to upload the result back to the designated S3 output prefix. The SSM command sent to each instance is a PowerShell script:
+```powershell
+# Conceptual flow for the SSM command payload (one per data file)
+$ts = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
+$batPath = "C:\processor\jobs\test_$ts.bat"
+
+Copy-S3Object -BucketName '<source-bucket>' -Key 'data/<filename>' -LocalFile 'C:\data\<filename>'
+
+@"
+@echo off
+"C:\processor\process.exe" --file "<filename>"
+"@ | Set-Content -Path $batPath -Encoding ASCII
+
+cmd /c "`"$batPath`""
+
+Write-S3Object -BucketName '<output-bucket>' -Key 'results/result_<filename>' -File 'C:\data\output\result_<filename>'
 ```
 
 ---
@@ -319,8 +340,9 @@ The app uses a primary window with a tab-based workflow. The user progresses thr
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Executable: /opt/processor/run.sh                    [Configure]  │
-│  Output S3 Path: s3://output-bucket/results/          [Configure]  │
+│  Processor: C:\processor\process.exe                  [Configure]  │
+│  Job Bat Dir: C:\processor\jobs\                      [Configure]  │
+│  Output S3 Path: s3://batchtest3-cbai/results/        [Configure]  │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │  i-0a1b2c3d4e (c5.2xlarge, Running)                        │   │
@@ -397,10 +419,10 @@ The app uses a primary window with a tab-based workflow. The user progresses thr
 
 **Key implementation details**:
 - `Ec2Service` uses `DescribeInstancesAsync` with tag filters, `StartInstancesAsync`, `StopInstancesAsync`
-- `SsmService` uses `SendCommandAsync` with `AWS-RunShellScript` document, `GetCommandInvocationAsync` for status
+- `SsmService` uses `SendCommandAsync` with `AWS-RunPowerShellScript` document, `GetCommandInvocationAsync` for status
 - `Ec2ManagerViewModel` holds `ObservableCollection<Ec2InstanceItem>`, polling timer for state refresh
 - Instance cards use `ItemsControl` with a `WrapPanel` ItemsPanelTemplate and a `DataTemplate` for the card layout
-- SSM test command: `echo "test" > /tmp/batch-processor-test-$(date +%s).txt && echo "SUCCESS"`
+- SSM test command: `'test' | Out-File C:\temp\batch-processor-test-$(Get-Date -Format 'yyyyMMdd_HHmmss').txt; Write-Output 'SUCCESS'`
 
 **Acceptance criteria**:
 1. On-demand instances appear as cards
@@ -415,9 +437,9 @@ The app uses a primary window with a tab-based workflow. The user progresses thr
 **Scope**:
 - Tab 3 UI: selected instances as containers, drag or button-assign files into them
 - Unassigned file tracker
-- Configurable: executable path, output S3 path
-- "Run" dispatches SSM commands to all assigned instances in parallel
-- SSM command per instance: run executable against each assigned file, then `aws s3 cp` output back to S3
+- Configurable: processor path (`C:\processor\process.exe`), job bat directory (`C:\processor\jobs\`), output S3 path
+- "Run" dispatches SSM commands — one per data file, serialized per instance, parallel across instances
+- SSM command per data file: generate a `test_[TIMESTAMP].bat`, execute it, then `Write-S3Object` output back to S3
 - Progress polling: per-file, per-instance status
 - Result display: success/failure per file with timestamps
 - Cancel running jobs
@@ -425,21 +447,31 @@ The app uses a primary window with a tab-based workflow. The user progresses thr
 **Key implementation details**:
 - `JobAssignment` model maps `Ec2InstanceItem` → `List<S3ObjectItem>`
 - `JobOrchestrationService` coordinates:
-  1. Build SSM command payload per instance (shell script iterating over assigned filenames)
-  2. Send commands in parallel via `Task.WhenAll`
+  1. Build SSM command payload per data file (PowerShell script that creates a `test_[TIMESTAMP].bat` and runs it)
+  2. Send commands — serialized per instance, parallel across instances — via `Task.WhenAll`
   3. Poll `GetCommandInvocation` on a timer
   4. Update `JobResult` models as statuses come back
 - SSM command template (configured, not hardcoded):
-  ```bash
-  #!/bin/bash
-  set -e
-  EXECUTABLE="/opt/processor/run.sh"
-  OUTPUT_BUCKET="s3://output-bucket/results"
-  for FILE in {file_list}; do
-    $EXECUTABLE "/data/$FILE"
-    aws s3 cp "/data/output/${FILE}.result" "$OUTPUT_BUCKET/${FILE}.result"
-  done
+  ```powershell
+  $ErrorActionPreference = 'Stop'
+  $jobBatDir = 'C:\processor\jobs'
+  $ts = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
+  $batPath = Join-Path $jobBatDir "test_$ts.bat"
+
+  New-Item -ItemType Directory -Force -Path 'C:\data','C:\data\output',$jobBatDir | Out-Null
+
+  Copy-S3Object -BucketName '{source_bucket}' -Key 'data/{filename}' -LocalFile 'C:\data\{filename}' -Region '{bucket_region}'
+
+  @"
+  @echo off
+  "C:\processor\process.exe" --file "{filename}"
+  "@ | Set-Content -Path $batPath -Encoding ASCII
+
+  cmd /c "`"$batPath`""
+
+  Write-S3Object -BucketName '{output_bucket}' -Key 'results/result_{filename}' -File 'C:\data\output\result_{filename}' -Region '{output_region}'
   ```
+- **Hard rule:** No `Copy-S3Object` of a shared `process.bat` / job runner from S3 per job. One `test_[TIMESTAMP].bat` per data file, written locally on the instance, then executed.
 - `JobExecutionViewModel` manages active jobs, polls status, updates progress bars
 - Cancellation: `SsmService.CancelCommandAsync` sends `CancelCommand` API call
 
@@ -455,10 +487,12 @@ The app uses a primary window with a tab-based workflow. The user progresses thr
 ### Milestone 4 (Future): Spot Instance Support
 
 **Not in current scope.** Notes for future reference:
-- Spot instances are ephemeral, don't have pre-loaded files
-- Assignment to spot instances requires an additional step: S3→EC2 file transfer before execution
-- SSM command prepends `aws s3 cp s3://input-bucket/<file> /data/<file>` before the processing step
-- Spot instance request/management via EC2 `RequestSpotInstances` API
+- Spot instances are ephemeral, fully disposable
+- Same per-job `test_[TIMESTAMP].bat` generation model applies — no difference from on-demand in dispatch flow
+- Input data pulled from S3 per job (same as on-demand)
+- `process.exe` delivered via AMI or User Data (recreated on each spot launch)
+- Spot instance request/management via EC2 launch templates
+- App must handle mid-job termination (spot reclaim with 2 min notice): detect failure, retry on another instance
 - Spot pricing display in the instance cards
 
 ---
@@ -512,24 +546,31 @@ var ssmClient = new AmazonSimpleSystemsManagementClient(RegionEndpoint.USEast1);
 The app needs a small set of configurable values. For the PoC, these can be constants or simple settings in `appsettings.json`:
 - Default AWS region
 - EC2 instance tag filter key/value (for filtering which instances to show)
-- Processing executable path on EC2
+- Processing executable path on EC2 (`C:\processor\process.exe`)
+- Job bat directory on EC2 (`C:\processor\jobs\`)
+- Job bat name prefix (`test_`)
 - S3 output bucket/prefix
 - SSM command timeout (seconds)
+- SSM poll interval (seconds)
 - Text preview max size (bytes)
 
 Store in `appsettings.json` loaded via `Microsoft.Extensions.Configuration`:
 ```json
 {
   "Aws": {
-    "DefaultRegion": "us-east-1"
+    "DefaultRegion": "us-east-1",
+    "ScanRegions": ["us-east-1", "us-east-2", "us-west-1", "us-west-2"]
   },
   "Ec2": {
     "FilterTagKey": "BatchProcessor",
     "FilterTagValue": "true"
   },
   "Processing": {
-    "ExecutablePath": "/opt/processor/run.sh",
-    "OutputS3Prefix": "s3://output-bucket/results/"
+    "JobBatDirectory": "C:\\processor\\jobs",
+    "JobBatNamePrefix": "test_",
+    "ExecutablePath": "C:\\processor\\process.exe",
+    "OutputS3Prefix": "s3://batchtest3-cbai/results/",
+    "PollIntervalSeconds": 3
   },
   "Ssm": {
     "CommandTimeoutSeconds": 600
@@ -539,6 +580,8 @@ Store in `appsettings.json` loaded via `Microsoft.Extensions.Configuration`:
   }
 }
 ```
+
+There is **no** `DeploySource` / deploy key for a shared job `.bat` — that workflow is retired in favor of local `test_[TIMESTAMP].bat` generation.
 
 ### Logging
 
@@ -554,7 +597,7 @@ Use `Microsoft.Extensions.Logging` with `ILogger<T>` injected into services and 
 ## What This App Does NOT Do
 
 - **No authentication UI** — credentials configured externally via AWS CLI
-- **No file upload to S3** — input files are already in S3
+- **No file upload to S3 from the desktop app** — input files are already in S3; result uploads happen on the EC2 instance via the SSM script
 - **No TIFF/LAS rendering** — these are processed on EC2, not viewed locally
 - **No EC2 provisioning** — instances are pre-existing, the app just discovers and controls them
 - **No scheduling or cron** — the operator manually triggers each processing run
