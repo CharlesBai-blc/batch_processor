@@ -13,7 +13,7 @@ public partial class JobAssignmentViewModel : ObservableObject
     private readonly IConfiguration _configuration;
     private readonly IS3Service _s3Service;
 
-    public event Action<IList<JobAssignment>, string, string, string, string>? RunRequested;
+    public event Action<IList<JobAssignment>, string, string, string, string, string>? RunRequested;
 
     public JobAssignmentViewModel(IConfiguration configuration, IS3Service s3Service)
     {
@@ -25,6 +25,7 @@ public partial class JobAssignmentViewModel : ObservableObject
         JobLogDirectory = _configuration["Processing:JobLogDirectory"] ?? @"C:\processor\jobs";
         DeploySource = _configuration["Processing:DeploySource"] ?? "";
         ProcessorFileName = ExtractFileName(DeploySource);
+        CommandArgs = _configuration["Processing:CommandArgs"] ?? "--file \"{filename}\"";
     }
 
     private string ResolveProcessorDirectory()
@@ -70,6 +71,9 @@ public partial class JobAssignmentViewModel : ObservableObject
 
     [ObservableProperty]
     private string _deploySource = string.Empty;
+
+    [ObservableProperty]
+    private string _commandArgs = "--file \"{filename}\"";
 
     [ObservableProperty]
     private S3ObjectItem? _pendingDeploySelection;
@@ -294,7 +298,7 @@ public partial class JobAssignmentViewModel : ObservableObject
 
         ClearValidation();
         var executablePath = Path.Combine(ProcessorDirectory, ProcessorFileName);
-        RunRequested?.Invoke(Assignments, executablePath, OutputS3Prefix, JobLogDirectory, DeploySource);
+        RunRequested?.Invoke(Assignments, executablePath, OutputS3Prefix, JobLogDirectory, DeploySource, CommandArgs);
     }
 
     [RelayCommand]
@@ -322,16 +326,19 @@ public partial class JobAssignmentViewModel : ObservableObject
             problems.Add("No instances available. Go back to Tab 2 and select instances.");
 
         if (string.IsNullOrWhiteSpace(ProcessorDirectory))
-            problems.Add("Processor directory is required.");
+            problems.Add("Binary directory is required.");
 
         if (string.IsNullOrWhiteSpace(DeploySource) || string.IsNullOrWhiteSpace(ProcessorFileName))
-            problems.Add("Processor not selected. Click Browse to pick a processor from S3.");
+            problems.Add("Binary not selected. Click Browse to pick a binary from S3.");
 
         if (string.IsNullOrWhiteSpace(OutputS3Prefix))
-            problems.Add("Output S3 prefix is required.");
+            problems.Add("Output S3 path is required.");
 
         if (string.IsNullOrWhiteSpace(JobLogDirectory))
             problems.Add("Job log directory is required.");
+
+        if (string.IsNullOrWhiteSpace(CommandArgs))
+            problems.Add("Command args is required. Use placeholders like {filename}.");
 
         return problems;
     }

@@ -41,9 +41,11 @@
                 CornerRadius="3" Padding="10,8" Margin="0,0,0,4"
                 Visibility="{Binding IsPreFlightActive, Converter={StaticResource BoolToVis}}">
             <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="{Binding PreFlightStatus}"
-                           FontWeight="SemiBold" FontSize="12" Foreground="#F57F17" Margin="0,0,0,4" />
-                <ItemsControl ItemsSource="{Binding PreFlightLog}" MaxHeight="120">
+                <TextBox DockPanel.Dock="Top" Text="{Binding PreFlightStatus, Mode=OneWay}"
+                         FontWeight="SemiBold" FontSize="12" Foreground="#F57F17" Margin="0,0,0,4"
+                         IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                         TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding PreFlightLog}" MaxHeight="300">
                     <ItemsControl.Template>
                         <ControlTemplate TargetType="ItemsControl">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -53,8 +55,9 @@
                     </ItemsControl.Template>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <TextBlock Text="{Binding}" FontSize="11" Foreground="#555"
-                                       Margin="8,1,0,1" />
+                            <TextBox Text="{Binding Mode=OneWay}" FontSize="11" Foreground="#555"
+                                     Margin="8,1,0,1" IsReadOnly="True" BorderThickness="0"
+                                     Background="Transparent" TextWrapping="Wrap" />
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

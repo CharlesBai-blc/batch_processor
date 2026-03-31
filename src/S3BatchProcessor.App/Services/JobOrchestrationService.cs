@@ -44,6 +44,49 @@ public class JobOrchestrationService : IJobOrchestrationService
         CancellationToken cancellationToken = default)
     {
         var instances = assignments.Select(a => a.Instance).Distinct().ToList();
+
+        // Launch any planned spot instances first
+        var planned = instances.Where(i => i.IsPlanned).ToList();
+        if (planned.Count > 0)
+        {
+            var byGroup = planned.GroupBy(i => (i.PlannedLaunchTemplateId!, i.Region));
+            foreach (var group in byGroup)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var (templateId, region) = group.Key;
+                var placeholders = group.ToList();
+
+                onStatusUpdate($"Launching {placeholders.Count} spot instance(s) in {region}...");
+
+                try
+                {
+                    var launched = await _ec2Service.LaunchSpotInstancesAsync(
+                        templateId, placeholders.Count, region, cancellationToken);
+
+                    for (var i = 0; i < Math.Min(launched.Count, placeholders.Count); i++)
+                    {
+                        var p = placeholders[i];
+                        var real = launched[i];
+                        p.InstanceId = real.InstanceId;
+                        p.InstanceType = real.InstanceType;
+                        p.State = real.State;
+                        p.PublicIp = real.PublicIp;
+                        p.LaunchTime = real.LaunchTime;
+                        p.Tags = real.Tags;
+                        p.IsPlanned = false;
+                    }
+
+                    onStatusUpdate($"Launched: {string.Join(", ", launched.Select(l => l.InstanceId))}");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogError(ex, "Failed to launch spot instances in {Region}", region);
+                    onStatusUpdate($"ERROR: Failed to launch spot instances in {region}: {ex.Message}");
+                    return false;
+                }
+            }
+        }
+
         var notRunning = instances.Where(i => i.State != Ec2InstanceState.Running).ToList();
 
         if (notRunning.Count == 0)
@@ -162,6 +205,7 @@ public class JobOrchestrationService : IJobOrchestrationService
         string outputS3Prefix,
         string jobLogDirectory,
         string deploySource,
+        string commandArgs,
         Action<JobResult> onResultUpdated,
         CancellationToken cancellationToken = default)
     {
@@ -171,7 +215,7 @@ public class JobOrchestrationService : IJobOrchestrationService
 
         await ResolveBucketRegionsAsync(deploySource, ct);
 
-        var perInstance = new Dictionary<string, (Ec2InstanceItem Instance, List<(JobResult Result, S3ObjectItem File)> Files)>();
+        var perInstance = new Dictionary<string, (Ec2InstanceItem Instance, List<(JobResult Result, S3ObjectItem File)> Files, string OutputPrefix)>();
 
         foreach (var assignment in assignments)
         {
@@ -189,7 +233,12 @@ public class JobOrchestrationService : IJobOrchestrationService
 
                 var id = assignment.Instance.InstanceId;
                 if (!perInstance.ContainsKey(id))
-                    perInstance[id] = (assignment.Instance, new List<(JobResult, S3ObjectItem)>());
+                {
+                    var prefix = !string.IsNullOrWhiteSpace(assignment.OutputS3Path)
+                        ? assignment.OutputS3Path
+                        : outputS3Prefix;
+                    perInstance[id] = (assignment.Instance, new List<(JobResult, S3ObjectItem)>(), prefix);
+                }
                 perInstance[id].Files.Add((result, file));
             }
         }
@@ -197,7 +246,7 @@ public class JobOrchestrationService : IJobOrchestrationService
         var instanceTasks = perInstance.Values
             .Select(g => SendBatchToInstanceAsync(
                 g.Instance, g.Files,
-                executablePath, outputS3Prefix, jobLogDirectory, deploySource,
+                executablePath, g.OutputPrefix, jobLogDirectory, deploySource, commandArgs,
                 onResultUpdated, ct))
             .ToList();
 
@@ -213,13 +262,14 @@ public class JobOrchestrationService : IJobOrchestrationService
         string outputS3Prefix,
         string jobLogDirectory,
         string deploySource,
+        string commandArgs,
         Action<JobResult> onResultUpdated,
         CancellationToken ct)
     {
         try
         {
             var s3Files = files.Select(f => f.File).ToList();
-            var script = BuildScript(executablePath, s3Files, outputS3Prefix, jobLogDirectory, deploySource);
+            var script = BuildScript(executablePath, s3Files, outputS3Prefix, jobLogDirectory, deploySource, commandArgs);
 
             _logger.LogInformation("Sending batch command ({FileCount} files) to {Instance}",
                 files.Count, instance.InstanceId);
@@ -351,7 +401,8 @@ public class JobOrchestrationService : IJobOrchestrationService
         IList<S3ObjectItem> files,
         string outputS3Prefix,
         string jobLogDirectory,
-        string deploySource)
+        string deploySource,
+        string commandArgs)
     {
         var (outputBucket, outputPrefix) = ParseS3Uri(outputS3Prefix);
         var (deployBucket, deployKey) = ParseS3Uri(deploySource);
@@ -387,14 +438,17 @@ public class JobOrchestrationService : IJobOrchestrationService
 
         foreach (var file in files)
         {
+            var resolvedArgs = commandArgs.Replace("{filename}", file.Name);
             lines.Add($"echo FILE_START:{file.Name}");
-            lines.Add($"\"{escapedExePath}\" --file \"{file.Name}\"");
+            lines.Add($"\"{escapedExePath}\" {resolvedArgs}");
             lines.Add($"if %ERRORLEVEL% EQU 0 (echo FILE_DONE:{file.Name}) else (echo FILE_FAILED:{file.Name})");
         }
 
         lines.Add("\"@ | Set-Content -Path $batPath -Encoding ASCII");
         lines.Add("");
         lines.Add("cmd /c \"`\"$batPath`\"\"");
+
+        lines.Add($"try {{ Write-S3Object -BucketName '{outputBucket}' -Key ('{outputPrefix}{_jobBatNamePrefix}' + $ts + '.bat') -File $batPath -Region '{outRegion}' }} catch {{ Write-Output 'BAT_UPLOAD_FAILED' }}");
 
         lines.Add("");
         foreach (var file in files)

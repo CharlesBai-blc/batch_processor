@@ -23,9 +23,9 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- Row 0: Processor S3 source + Browse -->
+                <!-- Row 0: Binary S3 source + Browse -->
                 <WrapPanel Grid.Row="0">
-                    <TextBlock Text="Processor:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                    <TextBlock Text="Binary:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
                     <Border Background="White" BorderBrush="#CCC" BorderThickness="1" CornerRadius="2"
                             Padding="6,2" MinWidth="380" VerticalAlignment="Center" Margin="0,0,8,0">
                         <TextBlock FontSize="11.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
@@ -47,17 +47,21 @@
                             Padding="8,3" FontSize="11" VerticalAlignment="Center" />
                 </WrapPanel>
 
-                <!-- Row 1: Processor Dir, Job Log Dir, Output S3 -->
+                <!-- Row 1: Binary Dir, Job Log Dir, Output S3, Command Args -->
                 <WrapPanel Grid.Row="1" Margin="0,4,0,0">
-                    <TextBlock Text="Processor Dir:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                    <TextBlock Text="Binary Dir:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
                     <TextBox Text="{Binding ProcessorDirectory, UpdateSourceTrigger=PropertyChanged}"
-                             Width="200" VerticalAlignment="Center" Margin="0,0,12,0" />
+                             Width="160" VerticalAlignment="Center" Margin="0,0,12,0" />
                     <TextBlock Text="Job Log Dir:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
                     <TextBox Text="{Binding JobLogDirectory, UpdateSourceTrigger=PropertyChanged}"
-                             Width="180" VerticalAlignment="Center" Margin="0,0,12,0" />
-                    <TextBlock Text="Output S3 Prefix:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                             Width="150" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <TextBlock Text="Output S3 Path:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
                     <TextBox Text="{Binding OutputS3Prefix, UpdateSourceTrigger=PropertyChanged}"
-                             Width="280" VerticalAlignment="Center" />
+                             Width="240" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <TextBlock Text="Command Args:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                    <TextBox Text="{Binding CommandArgs, UpdateSourceTrigger=PropertyChanged}"
+                             Width="220" VerticalAlignment="Center"
+                             ToolTip="{}{filename} is replaced with each file's name" />
                 </WrapPanel>
 
                 <!-- Row 2: Actions -->
@@ -77,7 +81,7 @@
             <DockPanel>
                 <!-- Header with Confirm / Cancel -->
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
-                    <TextBlock Text="Select Processor from S3" FontWeight="Bold" FontSize="12"
+                    <TextBlock Text="Select Binary from S3" FontWeight="Bold" FontSize="12"
                                VerticalAlignment="Center" />
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
                         <TextBlock VerticalAlignment="Center" Margin="0,0,8,0" FontSize="11" Foreground="#555">
@@ -264,6 +268,15 @@
                                                         RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}" />
                                         </StackPanel>
+                                    </DockPanel>
+
+                                    <!-- Per-instance output prefix -->
+                                    <DockPanel Margin="0,0,0,4">
+                                        <TextBlock Text="Output Path:" FontSize="10" Foreground="#888"
+                                                   VerticalAlignment="Center" Margin="0,0,4,0" />
+                                        <TextBox Text="{Binding OutputS3Path, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="10" Padding="3,1" VerticalAlignment="Center"
+                                                 ToolTip="Per-instance output S3 path. Leave blank to use the global Output S3 Path." />
                                     </DockPanel>
 
                                     <Border Background="White" BorderBrush="#DDD" BorderThickness="1"

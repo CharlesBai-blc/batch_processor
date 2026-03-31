@@ -70,7 +70,8 @@ public class Ec2Service : IEc2Service
                             Region = region,
                             Tags = tags,
                             PublicIp = instance.PublicIpAddress,
-                            LaunchTime = instance.LaunchTime
+                            LaunchTime = instance.LaunchTime,
+                            IsSpot = string.Equals(instance.InstanceLifecycle?.Value, "spot", StringComparison.OrdinalIgnoreCase)
                         });
                     }
                 }
@@ -107,6 +108,121 @@ public class Ec2Service : IEc2Service
         {
             InstanceIds = [instanceId]
         }, cancellationToken);
+    }
+
+    public async Task<List<LaunchTemplateItem>> DescribeLaunchTemplatesAsync(string region, CancellationToken ct = default)
+    {
+        try
+        {
+            var client = GetClient(region);
+            var items = new List<LaunchTemplateItem>();
+            var request = new DescribeLaunchTemplatesRequest();
+
+            DescribeLaunchTemplatesResponse response;
+            do
+            {
+                response = await client.DescribeLaunchTemplatesAsync(request, ct);
+                foreach (var lt in response.LaunchTemplates ?? [])
+                {
+                    items.Add(new LaunchTemplateItem
+                    {
+                        LaunchTemplateId = lt.LaunchTemplateId,
+                        LaunchTemplateName = lt.LaunchTemplateName,
+                        DefaultVersionNumber = lt.DefaultVersionNumber ?? 1,
+                        CreateTime = lt.CreateTime
+                    });
+                }
+                request.NextToken = response.NextToken;
+            }
+            while (!string.IsNullOrEmpty(response.NextToken));
+
+            _logger.LogDebug("Found {Count} launch templates in {Region}", items.Count, region);
+            return items;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to describe launch templates in {Region}", region);
+            throw;
+        }
+    }
+
+    public async Task<List<Ec2InstanceItem>> LaunchSpotInstancesAsync(string launchTemplateId, int count, string region, CancellationToken ct = default)
+    {
+        _logger.LogInformation("Launching {Count} spot instance(s) from template {TemplateId} in {Region}",
+            count, launchTemplateId, region);
+
+        var client = GetClient(region);
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+
+        var request = new RunInstancesRequest
+        {
+            LaunchTemplate = new LaunchTemplateSpecification
+            {
+                LaunchTemplateId = launchTemplateId
+            },
+            InstanceMarketOptions = new InstanceMarketOptionsRequest
+            {
+                MarketType = MarketType.Spot
+            },
+            MinCount = count,
+            MaxCount = count,
+            TagSpecifications =
+            [
+                new TagSpecification
+                {
+                    ResourceType = ResourceType.Instance,
+                    Tags =
+                    [
+                        new Tag { Key = "SpotLaunchedBy", Value = "S3BatchProcessor" },
+                        new Tag { Key = "Name", Value = $"S3BatchProc-Spot-{timestamp}" }
+                    ]
+                }
+            ]
+        };
+
+        var response = await client.RunInstancesAsync(request, ct);
+
+        var items = new List<Ec2InstanceItem>();
+        foreach (var instance in response.Reservation.Instances)
+        {
+            var tags = new Dictionary<string, string>();
+            foreach (var tag in instance.Tags ?? [])
+                tags[tag.Key] = tag.Value;
+
+            items.Add(new Ec2InstanceItem
+            {
+                InstanceId = instance.InstanceId,
+                InstanceType = instance.InstanceType?.Value ?? "unknown",
+                State = MapState(instance.State?.Name?.Value),
+                AvailabilityZone = instance.Placement?.AvailabilityZone ?? region,
+                Region = region,
+                Tags = tags,
+                PublicIp = instance.PublicIpAddress,
+                LaunchTime = instance.LaunchTime,
+                IsSpot = true,
+                IsSpotLaunched = true
+            });
+        }
+
+        _logger.LogInformation("Launched {Count} spot instance(s): {Ids}",
+            items.Count, string.Join(", ", items.Select(i => i.InstanceId)));
+
+        return items;
+    }
+
+    public async Task TerminateInstancesAsync(IEnumerable<string> instanceIds, string region, CancellationToken ct = default)
+    {
+        var ids = instanceIds.ToList();
+        if (ids.Count == 0) return;
+
+        _logger.LogInformation("Terminating {Count} instance(s) in {Region}: {Ids}",
+            ids.Count, region, string.Join(", ", ids));
+
+        var client = GetClient(region);
+        await client.TerminateInstancesAsync(new TerminateInstancesRequest
+        {
+            InstanceIds = ids
+        }, ct);
     }
 
     private static Ec2InstanceState MapState(string? stateName) => stateName switch

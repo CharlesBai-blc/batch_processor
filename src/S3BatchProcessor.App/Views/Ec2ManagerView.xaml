@@ -13,6 +13,7 @@
     <UserControl.Resources>
         <conv:InstanceStateToColorConverter x:Key="StateColorConverter" />
         <conv:BoolToVisibilityConverter x:Key="BoolToVisConverter" />
+        <conv:InverseBoolConverter x:Key="InverseBoolConverter" />
     </UserControl.Resources>
 
     <Grid>
@@ -41,7 +42,7 @@
             <DockPanel Grid.Column="0" Margin="8">
                 <!-- Top bar -->
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                    <TextBlock Text="On-Demand Instances" FontWeight="SemiBold" FontSize="16"
+                    <TextBlock Text="Instances" FontWeight="SemiBold" FontSize="16"
                                VerticalAlignment="Center" DockPanel.Dock="Left" />
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
                         <CheckBox Content="Auto-refresh" IsChecked="{Binding IsAutoRefreshEnabled}"
@@ -49,6 +50,46 @@
                         <Button Content="Refresh" Command="{Binding RefreshInstancesCommand}" Padding="12,4" />
                     </StackPanel>
                 </DockPanel>
+
+                <!-- Spot Instance Launch Panel -->
+                <Expander DockPanel.Dock="Bottom" IsExpanded="False" Margin="0,8,0,0">
+                    <Expander.Header>
+                        <TextBlock Text="Add Spot Instances" FontWeight="SemiBold" FontSize="13" />
+                    </Expander.Header>
+                    <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,4,0,0">
+                        <StackPanel>
+                            <!-- Region -->
+                            <TextBlock Text="Region" FontSize="12" Foreground="#555" Margin="0,0,0,3" />
+                            <ComboBox ItemsSource="{Binding ScanRegions}"
+                                      SelectedItem="{Binding SelectedSpotRegion}"
+                                      Margin="0,0,0,8" />
+
+                            <!-- Launch Template -->
+                            <TextBlock Text="Launch Template" FontSize="12" Foreground="#555" Margin="0,0,0,3" />
+                            <ComboBox ItemsSource="{Binding LaunchTemplates}"
+                                      SelectedItem="{Binding SelectedLaunchTemplate}"
+                                      DisplayMemberPath="DisplayName"
+                                      IsEnabled="{Binding IsLoadingTemplates, Converter={StaticResource InverseBoolConverter}}"
+                                      Margin="0,0,0,8" />
+
+                            <!-- Count -->
+                            <TextBlock Text="Instance Count" FontSize="12" Foreground="#555" Margin="0,0,0,3" />
+                            <TextBox Text="{Binding SpotInstanceCount, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="0,0,0,8" MaxWidth="80" HorizontalAlignment="Left" />
+
+                            <!-- Launch Button -->
+                            <Button Content="Add Spot Instances"
+                                    Command="{Binding LaunchSpotInstancesCommand}"
+                                    IsEnabled="{Binding IsLaunchingSpot, Converter={StaticResource InverseBoolConverter}}"
+                                    Padding="12,5" HorizontalAlignment="Left" Margin="0,0,0,6" />
+
+                            <!-- Status -->
+                            <TextBlock Text="{Binding SpotLaunchStatus}" FontSize="11"
+                                       Foreground="#666666" TextWrapping="Wrap"
+                                       Visibility="{Binding SpotLaunchStatus, Converter={StaticResource BoolToVisConverter}}" />
+                        </StackPanel>
+                    </Border>
+                </Expander>
 
                 <!-- Instance cards -->
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -74,8 +115,17 @@
                                 <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="4"
                                         Padding="12" Margin="0,0,10,10" Width="210">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding NameTag}" FontWeight="SemiBold"
-                                                   FontSize="13" TextTrimming="CharacterEllipsis" />
+                                        <DockPanel>
+                                            <Border DockPanel.Dock="Right" CornerRadius="3"
+                                                    Background="#E87D0D" Padding="5,1" Margin="4,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    Visibility="{Binding IsSpot, Converter={StaticResource BoolToVisConverter}}">
+                                                <TextBlock Text="SPOT" Foreground="White"
+                                                           FontSize="9" FontWeight="Bold" />
+                                            </Border>
+                                            <TextBlock Text="{Binding NameTag}" FontWeight="SemiBold"
+                                                       FontSize="13" TextTrimming="CharacterEllipsis" />
+                                        </DockPanel>
                                         <TextBlock Text="{Binding InstanceId}" Foreground="Gray"
                                                    FontSize="10" Margin="0,1,0,4" />
                                         <TextBlock Text="{Binding InstanceType}" FontSize="12"
@@ -93,12 +143,6 @@
                                             <Run Text="{Binding AvailabilityZone, Mode=OneWay}" />
                                         </TextBlock>
 
-                                        <!-- SSM Test result -->
-                                        <TextBlock Text="{Binding SsmTestResult}" FontSize="10"
-                                                   Foreground="#666666" Margin="0,2,0,4"
-                                                   TextWrapping="Wrap"
-                                                   Visibility="{Binding SsmTestResult, Converter={StaticResource BoolToVisConverter}}" />
-
                                         <!-- Buttons -->
                                         <WrapPanel Margin="0,4,0,0">
                                             <Button Content="Select" Padding="8,3" Margin="0,0,4,4"
@@ -106,22 +150,6 @@
                                                     Command="{Binding DataContext.ToggleSelectCommand,
                                                         RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}" />
-                                            <Button Content="SSM Test" Padding="8,3" Margin="0,0,4,4"
-                                                    FontSize="11"
-                                                    Command="{Binding DataContext.RunSsmTestCommand,
-                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    CommandParameter="{Binding}">
-                                                <Button.Style>
-                                                    <Style TargetType="Button">
-                                                        <Setter Property="Visibility" Value="Collapsed" />
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding State}" Value="Running">
-                                                                <Setter Property="Visibility" Value="Visible" />
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Button.Style>
-                                            </Button>
                                         </WrapPanel>
                                     </StackPanel>
                                 </Border>
@@ -170,10 +198,10 @@
                                 </ListBox.GroupStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type models:Ec2InstanceItem}">
-                                        <DockPanel Margin="8,1,0,1">
-                                            <Button Content="✕" DockPanel.Dock="Right" Padding="4,0"
+                                        <DockPanel Margin="0,1,0,1">
+                                            <Button Content="✕" DockPanel.Dock="Left" Padding="4,0"
                                                     FontSize="10" Background="Transparent" BorderThickness="0"
-                                                    Cursor="Hand" VerticalAlignment="Center"
+                                                    Cursor="Hand" VerticalAlignment="Center" Margin="0,0,4,0"
                                                     ToolTip="Remove"
                                                     Command="{Binding DataContext.ToggleSelectCommand,
                                                         RelativeSource={RelativeSource AncestorType=UserControl}}"

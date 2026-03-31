@@ -13,7 +13,6 @@ namespace S3BatchProcessor.App.ViewModels;
 public partial class Ec2ManagerViewModel : ObservableObject
 {
     private readonly IEc2Service _ec2Service;
-    private readonly ISsmService _ssmService;
     private readonly DispatcherTimer _refreshTimer;
     private readonly string[] _scanRegions;
 
@@ -24,10 +23,11 @@ public partial class Ec2ManagerViewModel : ObservableObject
         "ap-southeast-1", "ap-southeast-2", "ap-northeast-1"
     ];
 
-    public Ec2ManagerViewModel(IEc2Service ec2Service, ISsmService ssmService, IConfiguration configuration)
+    private readonly HashSet<string> _spotLaunchedInstanceIds = new();
+
+    public Ec2ManagerViewModel(IEc2Service ec2Service, IConfiguration configuration)
     {
         _ec2Service = ec2Service;
-        _ssmService = ssmService;
 
         var configRegions = configuration.GetSection("Aws:ScanRegions").Get<string[]>();
         _scanRegions = configRegions is { Length: > 0 } ? configRegions : DefaultRegions;
@@ -53,6 +53,28 @@ public partial class Ec2ManagerViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _isAutoRefreshEnabled = true;
+
+    [ObservableProperty]
+    private string? _selectedSpotRegion;
+
+    [ObservableProperty]
+    private LaunchTemplateItem? _selectedLaunchTemplate;
+
+    [ObservableProperty]
+    private int _spotInstanceCount = 1;
+
+    [ObservableProperty]
+    private bool _isLaunchingSpot;
+
+    [ObservableProperty]
+    private string? _spotLaunchStatus;
+
+    [ObservableProperty]
+    private bool _isLoadingTemplates;
+
+    public ObservableCollection<LaunchTemplateItem> LaunchTemplates { get; } = new();
+    public string[] ScanRegions => _scanRegions;
+    public IReadOnlySet<string> SpotLaunchedInstanceIds => _spotLaunchedInstanceIds;
 
     public event Action? ContinueRequested;
 
@@ -80,6 +102,17 @@ public partial class Ec2ManagerViewModel : ObservableObject
         else _refreshTimer.Stop();
     }
 
+    partial void OnSelectedSpotRegionChanged(string? value)
+    {
+        if (!string.IsNullOrEmpty(value))
+            _ = LoadLaunchTemplatesAsync(value);
+        else
+        {
+            LaunchTemplates.Clear();
+            SelectedLaunchTemplate = null;
+        }
+    }
+
     [RelayCommand]
     private async Task RefreshInstancesAsync()
     {
@@ -90,7 +123,8 @@ public partial class Ec2ManagerViewModel : ObservableObject
 
             var instances = await _ec2Service.DescribeInstancesAsync(_scanRegions);
 
-            var selectedIds = SelectedInstances.Select(i => i.InstanceId).ToHashSet();
+            var plannedInstances = SelectedInstances.Where(i => i.IsPlanned).ToList();
+            var selectedIds = SelectedInstances.Where(i => !i.IsPlanned).Select(i => i.InstanceId).ToHashSet();
             Instances.Clear();
             SelectedInstances.Clear();
 
@@ -100,6 +134,17 @@ public partial class Ec2ManagerViewModel : ObservableObject
                 if (selectedIds.Contains(inst.InstanceId))
                     SelectedInstances.Add(inst);
             }
+
+            // Re-tag instances launched by this session
+            foreach (var inst in Instances)
+            {
+                if (_spotLaunchedInstanceIds.Contains(inst.InstanceId))
+                    inst.IsSpotLaunched = true;
+            }
+
+            // Preserve planned (not-yet-launched) instances
+            foreach (var planned in plannedInstances)
+                SelectedInstances.Add(planned);
 
             SelectedInstanceCount = SelectedInstances.Count;
 
@@ -114,6 +159,94 @@ public partial class Ec2ManagerViewModel : ObservableObject
         {
             IsLoading = false;
         }
+    }
+
+    private async Task LoadLaunchTemplatesAsync(string region)
+    {
+        try
+        {
+            IsLoadingTemplates = true;
+            SpotLaunchStatus = null;
+            LaunchTemplates.Clear();
+            SelectedLaunchTemplate = null;
+
+            var templates = await _ec2Service.DescribeLaunchTemplatesAsync(region);
+
+            foreach (var t in templates.OrderBy(t => t.LaunchTemplateName))
+                LaunchTemplates.Add(t);
+
+            if (LaunchTemplates.Count == 0)
+                SpotLaunchStatus = "No launch templates found in this region.";
+        }
+        catch (Exception ex)
+        {
+            SpotLaunchStatus = $"Failed to load templates: {ex.Message}";
+        }
+        finally
+        {
+            IsLoadingTemplates = false;
+        }
+    }
+
+    [RelayCommand]
+    private void LaunchSpotInstances()
+    {
+        if (SelectedLaunchTemplate is null || string.IsNullOrEmpty(SelectedSpotRegion))
+            return;
+
+        var templateName = SelectedLaunchTemplate.LaunchTemplateName;
+
+        for (var i = 0; i < SpotInstanceCount; i++)
+        {
+            var placeholder = new Ec2InstanceItem
+            {
+                InstanceId = $"planned-{Guid.NewGuid():N}",
+                Region = SelectedSpotRegion,
+                State = Ec2InstanceState.Pending,
+                IsSpot = true,
+                IsSpotLaunched = true,
+                IsPlanned = true,
+                PlannedLaunchTemplateId = SelectedLaunchTemplate.LaunchTemplateId,
+                InstanceType = templateName,
+                Tags = new Dictionary<string, string>
+                {
+                    ["Name"] = $"Spot-Planned-{templateName}-{i + 1}"
+                }
+            };
+            SelectedInstances.Add(placeholder);
+        }
+
+        SelectedInstanceCount = SelectedInstances.Count;
+        SpotLaunchStatus = $"Added {SpotInstanceCount} planned spot instance(s). They will be launched when you click Run.";
+    }
+
+    public async Task TerminateSpotLaunchedInstancesAsync(IEnumerable<Ec2InstanceItem> instancesToTerminate)
+    {
+        var toTerminate = instancesToTerminate
+            .Where(i => i.State is not Ec2InstanceState.Terminated && !i.IsPlanned)
+            .ToList();
+
+        if (toTerminate.Count == 0) return;
+
+        var byRegion = toTerminate.GroupBy(i => i.Region);
+        foreach (var group in byRegion)
+        {
+            try
+            {
+                await _ec2Service.TerminateInstancesAsync(
+                    group.Select(i => i.InstanceId),
+                    group.Key);
+            }
+            catch (Exception ex)
+            {
+                ErrorMessage = $"Failed to terminate spot instances in {group.Key}: {ex.Message}";
+            }
+        }
+
+        foreach (var id in toTerminate.Select(i => i.InstanceId))
+            _spotLaunchedInstanceIds.Remove(id);
+
+        await RefreshInstancesAsync();
     }
 
     [RelayCommand]
@@ -179,52 +312,4 @@ public partial class Ec2ManagerViewModel : ObservableObject
         ContinueRequested?.Invoke();
     }
 
-    [RelayCommand]
-    private async Task RunSsmTestAsync(Ec2InstanceItem? instance)
-    {
-        if (instance is null) return;
-
-        instance.SsmTestResult = "Running...";
-        RefreshInstanceInView(instance);
-
-        try
-        {
-            const string testCommand = "Write-Output 'SUCCESS'";
-            var commandId = await _ssmService.SendCommandAsync(instance.InstanceId, testCommand, instance.Region);
-
-            JobStatus status;
-            do
-            {
-                await Task.Delay(2000);
-                status = await _ssmService.GetCommandStatusAsync(commandId, instance.InstanceId, instance.Region);
-            }
-            while (status is JobStatus.Pending or JobStatus.InProgress);
-
-            if (status == JobStatus.Success)
-            {
-                var (stdout, _) = await _ssmService.GetCommandOutputAsync(commandId, instance.InstanceId, instance.Region);
-                instance.SsmTestResult = $"OK: {stdout?.Trim()}";
-            }
-            else
-            {
-                instance.SsmTestResult = $"FAILED ({status})";
-            }
-        }
-        catch (Exception ex)
-        {
-            instance.SsmTestResult = $"Error: {ex.Message}";
-        }
-
-        RefreshInstanceInView(instance);
-    }
-
-    private void RefreshInstanceInView(Ec2InstanceItem instance)
-    {
-        var idx = Instances.IndexOf(instance);
-        if (idx >= 0)
-        {
-            Instances.RemoveAt(idx);
-            Instances.Insert(idx, instance);
-        }
-    }
 }

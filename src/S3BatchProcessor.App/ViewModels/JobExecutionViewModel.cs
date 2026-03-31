@@ -11,11 +11,14 @@ public partial class JobExecutionViewModel : ObservableObject
 {
     private readonly IJobOrchestrationService _orchestrationService;
     private CancellationTokenSource? _cts;
+    private IList<JobAssignment>? _currentAssignments;
 
     public JobExecutionViewModel(IJobOrchestrationService orchestrationService)
     {
         _orchestrationService = orchestrationService;
     }
+
+    public event Action<IList<JobAssignment>>? ExecutionCompleted;
 
     [ObservableProperty]
     private bool _isRunning;
@@ -49,7 +52,8 @@ public partial class JobExecutionViewModel : ObservableObject
         string executablePath,
         string outputS3Prefix,
         string jobLogDirectory,
-        string deploySource)
+        string deploySource,
+        string commandArgs)
     {
         Results.Clear();
         PreFlightLog.Clear();
@@ -61,6 +65,7 @@ public partial class JobExecutionViewModel : ObservableObject
         Phase = "Starting Instances";
         PreFlightStatus = "Checking instance states...";
         ProgressSummary = string.Empty;
+        _currentAssignments = assignments;
 
         _cts = new CancellationTokenSource();
 
@@ -75,7 +80,7 @@ public partial class JobExecutionViewModel : ObservableObject
             {
                 Phase = "Pre-flight Failed";
                 IsRunning = false;
-                IsPreFlightActive = false;
+                // Keep IsPreFlightActive = true so the log panel stays visible with the error
                 ProgressSummary = "Execution aborted — not all instances could be started.";
                 return;
             }
@@ -90,6 +95,7 @@ public partial class JobExecutionViewModel : ObservableObject
                 outputS3Prefix,
                 jobLogDirectory,
                 deploySource,
+                commandArgs,
                 OnResultUpdated,
                 _cts.Token);
 
@@ -102,8 +108,12 @@ public partial class JobExecutionViewModel : ObservableObject
         finally
         {
             IsRunning = false;
-            IsPreFlightActive = false;
+            if (Phase != "Pre-flight Failed")
+                IsPreFlightActive = false;
             UpdateProgressSummary();
+
+            if (_currentAssignments is not null)
+                ExecutionCompleted?.Invoke(_currentAssignments);
         }
     }
 
