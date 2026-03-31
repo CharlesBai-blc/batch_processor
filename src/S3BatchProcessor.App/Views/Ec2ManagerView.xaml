@@ -51,6 +51,14 @@
                     </StackPanel>
                 </DockPanel>
 
+                <!-- Search bar -->
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0" FontSize="12" />
+                    <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                             Padding="4,3" FontSize="12"
+                             ToolTip="Filter instances by name" />
+                </DockPanel>
+
                 <!-- Spot Instance Launch Panel -->
                 <Expander DockPanel.Dock="Bottom" IsExpanded="False" Margin="0,8,0,0">
                     <Expander.Header>
@@ -96,13 +104,25 @@
                     <ItemsControl ItemsSource="{Binding InstancesView}">
                         <ItemsControl.GroupStyle>
                             <GroupStyle>
-                                <GroupStyle.HeaderTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
-                                                   Foreground="#555555" FontSize="13"
-                                                   Margin="0,12,0,6" />
-                                    </DataTemplate>
-                                </GroupStyle.HeaderTemplate>
+                                <GroupStyle.ContainerStyle>
+                                    <Style TargetType="GroupItem">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="GroupItem">
+                                                    <Expander IsExpanded="True" Margin="0,4,0,0">
+                                                        <Expander.Header>
+                                                            <TextBlock FontWeight="SemiBold" Foreground="#555555" FontSize="13">
+                                                                <Run Text="{Binding Name, Mode=OneWay}" />
+                                                                <Run Text=" (" /><Run Text="{Binding ItemCount, Mode=OneWay}" /><Run Text=")" />
+                                                            </TextBlock>
+                                                        </Expander.Header>
+                                                        <ItemsPresenter Margin="0,4,0,0" />
+                                                    </Expander>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </GroupStyle.ContainerStyle>
                             </GroupStyle>
                         </ItemsControl.GroupStyle>
                         <ItemsControl.ItemsPanel>

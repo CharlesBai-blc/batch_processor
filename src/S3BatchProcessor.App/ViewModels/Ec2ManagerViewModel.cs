@@ -72,6 +72,9 @@ public partial class Ec2ManagerViewModel : ObservableObject
     [ObservableProperty]
     private bool _isLoadingTemplates;
 
+    [ObservableProperty]
+    private string _searchText = string.Empty;
+
     public ObservableCollection<LaunchTemplateItem> LaunchTemplates { get; } = new();
     public string[] ScanRegions => _scanRegions;
     public IReadOnlySet<string> SpotLaunchedInstanceIds => _spotLaunchedInstanceIds;
@@ -94,6 +97,15 @@ public partial class Ec2ManagerViewModel : ObservableObject
             }
             return _selectedInstancesView;
         }
+    }
+
+    partial void OnSearchTextChanged(string value)
+    {
+        _instancesView.Filter = string.IsNullOrWhiteSpace(value)
+            ? null
+            : obj => obj is Ec2InstanceItem item &&
+                     item.NameTag.Contains(value, StringComparison.OrdinalIgnoreCase);
+        _instancesView.Refresh();
     }
 
     partial void OnIsAutoRefreshEnabledChanged(bool value)

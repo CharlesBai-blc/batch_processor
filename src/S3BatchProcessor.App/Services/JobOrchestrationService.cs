@@ -206,6 +206,7 @@ public class JobOrchestrationService : IJobOrchestrationService
         string jobLogDirectory,
         string deploySource,
         string commandArgs,
+        string inputDirectory,
         Action<JobResult> onResultUpdated,
         CancellationToken cancellationToken = default)
     {
@@ -246,7 +247,7 @@ public class JobOrchestrationService : IJobOrchestrationService
         var instanceTasks = perInstance.Values
             .Select(g => SendBatchToInstanceAsync(
                 g.Instance, g.Files,
-                executablePath, g.OutputPrefix, jobLogDirectory, deploySource, commandArgs,
+                executablePath, g.OutputPrefix, jobLogDirectory, deploySource, commandArgs, inputDirectory,
                 onResultUpdated, ct))
             .ToList();
 
@@ -263,13 +264,14 @@ public class JobOrchestrationService : IJobOrchestrationService
         string jobLogDirectory,
         string deploySource,
         string commandArgs,
+        string inputDirectory,
         Action<JobResult> onResultUpdated,
         CancellationToken ct)
     {
         try
         {
             var s3Files = files.Select(f => f.File).ToList();
-            var script = BuildScript(executablePath, s3Files, outputS3Prefix, jobLogDirectory, deploySource, commandArgs);
+            var script = BuildScript(executablePath, s3Files, outputS3Prefix, jobLogDirectory, deploySource, commandArgs, inputDirectory);
 
             _logger.LogInformation("Sending batch command ({FileCount} files) to {Instance}",
                 files.Count, instance.InstanceId);
@@ -402,63 +404,84 @@ public class JobOrchestrationService : IJobOrchestrationService
         string outputS3Prefix,
         string jobLogDirectory,
         string deploySource,
-        string commandArgs)
+        string commandArgs,
+        string inputDirectory)
     {
         var (outputBucket, outputPrefix) = ParseS3Uri(outputS3Prefix);
-        var (deployBucket, deployKey) = ParseS3Uri(deploySource);
         var deployRegion = _deployBucketRegion ?? "us-east-1";
         var outRegion = _outputBucketRegion ?? "us-east-1";
 
-        var escapedBatDir = jobLogDirectory.Replace("'", "''");
-        var escapedExePath = executablePath.Replace("\"", "`\"");
+        var inputDir = inputDirectory.TrimEnd('\\');
+        var outputDir = inputDir + @"\output";
 
-        var lines = new List<string>
+        // Build the bat file content — contains ALL operations
+        var bat = new List<string>
         {
-            "$ErrorActionPreference = 'Stop'",
-            $"$jobBatDir = '{escapedBatDir}'",
-            "$ts = Get-Date -Format 'yyyyMMdd_HHmmss_fff'",
-            $"$batPath = Join-Path $jobBatDir \"{_jobBatNamePrefix}$ts.bat\"",
+            "@echo off",
             "",
-            "$dirsToCreate = @('C:\\data','C:\\data\\output',$jobBatDir)",
-            "New-Item -ItemType Directory -Force -Path $dirsToCreate | Out-Null",
+            "REM === Directory setup ===",
+            $"if not exist \"{inputDir}\" mkdir \"{inputDir}\"",
+            $"if not exist \"{outputDir}\" mkdir \"{outputDir}\"",
+            $"if not exist \"{jobLogDirectory}\" mkdir \"{jobLogDirectory}\"",
             "",
-            $"Copy-S3Object -BucketName '{deployBucket}' -Key '{deployKey}' -LocalFile '{executablePath}' -Region '{deployRegion}' -Force",
+            "REM === Download binary ===",
+            $"aws s3 cp \"{deploySource}\" \"{executablePath}\" --region {deployRegion}",
         };
 
+        bat.Add("");
+        bat.Add("REM === Download input files ===");
         foreach (var file in files)
         {
             var sourceRegion = !string.IsNullOrEmpty(file.BucketRegion) ? file.BucketRegion : "us-east-1";
-            var localInput = @"C:\data\" + file.Name;
-            lines.Add($"Copy-S3Object -BucketName '{file.BucketName}' -Key '{file.Key}' -LocalFile '{localInput}' -Region '{sourceRegion}'");
+            var localInput = inputDir + @"\" + file.Name;
+            bat.Add($"aws s3 cp \"s3://{file.BucketName}/{file.Key}\" \"{localInput}\" --region {sourceRegion}");
         }
 
-        lines.Add("");
-        lines.Add("@\"");
-        lines.Add("@echo off");
-
+        bat.Add("");
+        bat.Add("REM === Process files ===");
         foreach (var file in files)
         {
-            var resolvedArgs = commandArgs.Replace("{filename}", file.Name);
-            lines.Add($"echo FILE_START:{file.Name}");
-            lines.Add($"\"{escapedExePath}\" {resolvedArgs}");
-            lines.Add($"if %ERRORLEVEL% EQU 0 (echo FILE_DONE:{file.Name}) else (echo FILE_FAILED:{file.Name})");
+            var resolvedArgs = commandArgs.Replace("{filename}", inputDir + @"\" + file.Name);
+            bat.Add($"echo FILE_START:{file.Name}");
+            bat.Add($"\"{executablePath}\" {resolvedArgs}");
+            bat.Add($"if %ERRORLEVEL% EQU 0 (echo FILE_DONE:{file.Name}) else (echo FILE_FAILED:{file.Name})");
         }
 
-        lines.Add("\"@ | Set-Content -Path $batPath -Encoding ASCII");
-        lines.Add("");
-        lines.Add("cmd /c \"`\"$batPath`\"\"");
-
-        lines.Add($"try {{ Write-S3Object -BucketName '{outputBucket}' -Key ('{outputPrefix}{_jobBatNamePrefix}' + $ts + '.bat') -File $batPath -Region '{outRegion}' }} catch {{ Write-Output 'BAT_UPLOAD_FAILED' }}");
-
-        lines.Add("");
+        bat.Add("");
+        bat.Add("REM === Upload results ===");
         foreach (var file in files)
         {
-            var localOutput = @"C:\data\output\result_" + file.Name;
+            var localOutput = outputDir + @"\result_" + file.Name;
             var outputKey = outputPrefix + "result_" + file.Name;
-            lines.Add($"try {{ Write-S3Object -BucketName '{outputBucket}' -Key '{outputKey}' -File '{localOutput}' -Region '{outRegion}' }} catch {{ Write-Output 'UPLOAD_FAILED:{file.Name}' }}");
+            bat.Add($"aws s3 cp \"{localOutput}\" \"s3://{outputBucket}/{outputKey}\" --region {outRegion}");
+            bat.Add($"if %ERRORLEVEL% NEQ 0 echo UPLOAD_FAILED:{file.Name}");
         }
 
-        return string.Join("\n", lines);
+        bat.Add("");
+        bat.Add("REM === Upload this bat file as audit log ===");
+        bat.Add($"aws s3 cp \"%~f0\" \"s3://{outputBucket}/{outputPrefix}{_jobBatNamePrefix}%TIMESTAMP%.bat\" --region {outRegion}");
+        bat.Add("if %ERRORLEVEL% NEQ 0 echo BAT_UPLOAD_FAILED");
+
+        var batContent = string.Join("\n", bat);
+
+        // PowerShell wrapper: create job log dir, write bat, inject timestamp, run it
+        var escapedBatDir = jobLogDirectory.Replace("'", "''");
+        var ps = new List<string>
+        {
+            "$ErrorActionPreference = 'Stop'",
+            $"$jobBatDir = '{escapedBatDir}'",
+            "New-Item -ItemType Directory -Force -Path $jobBatDir | Out-Null",
+            "$ts = Get-Date -Format 'yyyyMMdd_HHmmss_fff'",
+            $"$batPath = Join-Path $jobBatDir \"{_jobBatNamePrefix}$ts.bat\"",
+            "",
+            $"$batContent = @\"\n{batContent}\n\"@",
+            "$batContent = $batContent.Replace('%TIMESTAMP%', $ts)",
+            "Set-Content -Path $batPath -Value $batContent -Encoding ASCII",
+            "",
+            "cmd /c \"`\"$batPath`\"\"",
+        };
+
+        return string.Join("\n", ps);
     }
 
     private async Task ResolveBucketRegionsAsync(string deploySource, CancellationToken ct)

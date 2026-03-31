@@ -13,7 +13,7 @@ public partial class JobAssignmentViewModel : ObservableObject
     private readonly IConfiguration _configuration;
     private readonly IS3Service _s3Service;
 
-    public event Action<IList<JobAssignment>, string, string, string, string, string>? RunRequested;
+    public event Action<IList<JobAssignment>, string, string, string, string, string, string>? RunRequested;
 
     public JobAssignmentViewModel(IConfiguration configuration, IS3Service s3Service)
     {
@@ -26,6 +26,7 @@ public partial class JobAssignmentViewModel : ObservableObject
         DeploySource = _configuration["Processing:DeploySource"] ?? "";
         ProcessorFileName = ExtractFileName(DeploySource);
         CommandArgs = _configuration["Processing:CommandArgs"] ?? "--file \"{filename}\"";
+        InputDirectory = _configuration["Processing:InputDirectory"] ?? @"C:\data";
     }
 
     private string ResolveProcessorDirectory()
@@ -74,6 +75,9 @@ public partial class JobAssignmentViewModel : ObservableObject
 
     [ObservableProperty]
     private string _commandArgs = "--file \"{filename}\"";
+
+    [ObservableProperty]
+    private string _inputDirectory = @"C:\data";
 
     [ObservableProperty]
     private S3ObjectItem? _pendingDeploySelection;
@@ -298,7 +302,7 @@ public partial class JobAssignmentViewModel : ObservableObject
 
         ClearValidation();
         var executablePath = Path.Combine(ProcessorDirectory, ProcessorFileName);
-        RunRequested?.Invoke(Assignments, executablePath, OutputS3Prefix, JobLogDirectory, DeploySource, CommandArgs);
+        RunRequested?.Invoke(Assignments, executablePath, OutputS3Prefix, JobLogDirectory, DeploySource, CommandArgs, InputDirectory);
     }
 
     [RelayCommand]
@@ -339,6 +343,9 @@ public partial class JobAssignmentViewModel : ObservableObject
 
         if (string.IsNullOrWhiteSpace(CommandArgs))
             problems.Add("Command args is required. Use placeholders like {filename}.");
+
+        if (string.IsNullOrWhiteSpace(InputDirectory))
+            problems.Add("Input directory is required.");
 
         return problems;
     }

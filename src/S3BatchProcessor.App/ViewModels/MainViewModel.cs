@@ -20,10 +20,10 @@ public partial class MainViewModel : ObservableObject
         S3Browser.ContinueRequested += () => SelectedTabIndex = 1;
         Ec2Manager.ContinueRequested += () => SelectedTabIndex = 2;
 
-        JobAssignment.RunRequested += (assignments, exePath, outputPrefix, jobLogDir, deploySource, commandArgs) =>
+        JobAssignment.RunRequested += (assignments, exePath, outputPrefix, jobLogDir, deploySource, commandArgs, inputDirectory) =>
         {
             SelectedTabIndex = 2;
-            _ = JobExecution.StartExecution(assignments, exePath, outputPrefix, jobLogDir, deploySource, commandArgs);
+            _ = JobExecution.StartExecution(assignments, exePath, outputPrefix, jobLogDir, deploySource, commandArgs, inputDirectory);
         };
 
         JobExecution.ExecutionCompleted += assignments =>

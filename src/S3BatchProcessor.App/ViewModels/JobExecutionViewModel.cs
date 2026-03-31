@@ -53,7 +53,8 @@ public partial class JobExecutionViewModel : ObservableObject
         string outputS3Prefix,
         string jobLogDirectory,
         string deploySource,
-        string commandArgs)
+        string commandArgs,
+        string inputDirectory)
     {
         Results.Clear();
         PreFlightLog.Clear();
@@ -96,6 +97,7 @@ public partial class JobExecutionViewModel : ObservableObject
                 jobLogDirectory,
                 deploySource,
                 commandArgs,
+                inputDirectory,
                 OnResultUpdated,
                 _cts.Token);
 

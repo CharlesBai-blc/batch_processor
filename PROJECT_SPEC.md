@@ -43,14 +43,15 @@ The operator clicks "Run Processing." The app validates assignments, then execut
 3. Starts any stopped instances and waits for Running state + SSM agent registration
 4. Sends **one SSM command per instance** containing all files assigned to that instance
 
-Each SSM command is a PowerShell script that:
-- Ensures working directories exist (`C:\data`, `C:\data\output`, and the job batch directory)
-- Downloads the processor executable from S3 via the configured **Deploy Source** (e.g. `s3://batchtest3-cbai/deploy/process.bat`)
-- Downloads all assigned input data files from their source S3 buckets
-- Writes a unique batch file `test_[TIMESTAMP].bat` containing process commands for **all** assigned files, with `FILE_START:`, `FILE_DONE:`, and `FILE_FAILED:` markers for per-file tracking
-- Runs the batch file via `cmd /c`
-- Uploads the batch file to the output S3 prefix as an audit log
-- Uploads each result file to the configured output S3 prefix
+Each SSM command is a PowerShell script that writes a timestamped batch file and runs it. The batch file itself contains **all operations** as an audit log:
+- Creates working directories (Input Dir, output dir, job log dir)
+- Downloads the processor executable from S3 via `aws s3 cp`
+- Downloads all assigned input data files from their source S3 buckets via `aws s3 cp`
+- Executes the binary per file with `FILE_START:`, `FILE_DONE:`, and `FILE_FAILED:` markers for per-file tracking
+- Uploads each result file to S3 via `aws s3 cp`
+- Uploads itself (the batch file) to the output S3 path as an audit log
+
+The PowerShell wrapper is minimal — it only creates the job log directory, writes the bat to disk, and runs it via `cmd /c`.
 
 ### Step 6: Monitor
 The app polls SSM command status every 3 seconds. Since each instance receives one command covering multiple files, the app parses stdout for `FILE_START:<name>`, `FILE_DONE:<name>`, and `FILE_FAILED:<name>` markers to track per-file progress within the batch. Status states: Pending, In Progress, Success, Failed, Timed Out.
@@ -133,7 +134,7 @@ The processor executable is distributed via S3 and downloaded to each instance a
 ### Base Image
 - Windows Server AMI (2019 or 2022)
 - SSM Agent pre-installed (default on AWS Windows AMIs)
-- AWS CLI pre-installed (default on AWS Windows AMIs)
+- AWS CLI installed (required for `aws s3 cp` commands in the generated batch files)
 
 ### IAM Instance Profile
 An IAM role attached to the instance with:
@@ -153,13 +154,15 @@ C:\processor\
     jobs\                  <- configured job log directory
         test_20260329_143022_123.bat   <- one batch file per SSM command (per instance); name = test_[TIMESTAMP]
 
-C:\data\
+<InputDir>\              <- configurable via "Input Dir" field (default: C:\data)
     <input files>        <- pulled from S3 per job
     output\
-        result_<filename>  <- written by processor, uploaded to S3 by the script
+        result_<filename>  <- written by processor, uploaded to S3 by the batch file
 ```
 
-**Naming rule:** Each SSM command (one per instance) generates a single `test_[TIMESTAMP].bat` containing process commands for all files assigned to that instance. The timestamp ensures uniqueness across successive runs. The batch file is uploaded to the output S3 prefix after execution as an audit log.
+**Naming rule:** Each SSM command (one per instance) generates a single `test_[TIMESTAMP].bat` containing **all operations** — directory creation, S3 downloads, binary execution with tracking markers, result uploads, and self-upload as an audit log. The timestamp ensures uniqueness across successive runs.
+
+**Input directory** is configurable via the "Input Dir" field in Tab 3 (default: `C:\data`). The batch file creates this directory if it doesn't exist.
 
 ### Instance Lifecycle
 
@@ -265,58 +268,67 @@ dotnet publish src/S3BatchProcessor.App -c Release -r win-x64 --self-contained -
 ### Job Execution
 A job is a single SSM `SendCommand` call (using `AWS-RunPowerShellScript`) targeting one EC2 instance. **One command is sent per instance**, containing all files assigned to that instance. Commands to different instances are dispatched in parallel.
 
-The command payload is a PowerShell script that processes all assigned files sequentially:
+The command payload is a PowerShell script that writes a bat file containing all operations and runs it:
 
 ```powershell
+# PowerShell wrapper — creates job log dir, writes bat, runs it
 $ErrorActionPreference = 'Stop'
-$jobBatDir = 'C:\processor\jobs'   # configured JobLogDirectory
+$jobBatDir = 'C:\processor\jobs'
+New-Item -ItemType Directory -Force -Path $jobBatDir | Out-Null
 $ts = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
 $batPath = Join-Path $jobBatDir "test_$ts.bat"
 
-$dirsToCreate = @('C:\data','C:\data\output',$jobBatDir)
-New-Item -ItemType Directory -Force -Path $dirsToCreate | Out-Null
-
-# Download processor executable from S3 DeploySource
-Copy-S3Object -BucketName '<deploy-bucket>' -Key '<deploy-key>' -LocalFile '<ProcessorDirectory>\<ProcessorFileName>' -Region '<deploy-region>' -Force
-
-# Download all input data files from source buckets
-Copy-S3Object -BucketName '<source-bucket>' -Key 'data/<file1>' -LocalFile 'C:\data\<file1>' -Region '<bucket-region>'
-Copy-S3Object -BucketName '<source-bucket>' -Key 'data/<file2>' -LocalFile 'C:\data\<file2>' -Region '<bucket-region>'
-
-# Generate batch file with per-file commands and tracking markers
-# Binary args are configurable via CommandArgs (default: --file "{filename}")
-# {filename} is replaced with each file's name
-@"
+$batContent = @"
 @echo off
+
+REM === Directory setup ===
+if not exist "<InputDir>" mkdir "<InputDir>"
+if not exist "<InputDir>\output" mkdir "<InputDir>\output"
+if not exist "C:\processor\jobs" mkdir "C:\processor\jobs"
+
+REM === Download binary ===
+aws s3 cp "s3://<deploy-bucket>/<deploy-key>" "<BinaryDir>\<BinaryName>" --region <deploy-region>
+
+REM === Download input files ===
+aws s3 cp "s3://<source-bucket>/data/<file1>" "<InputDir>\<file1>" --region <bucket-region>
+aws s3 cp "s3://<source-bucket>/data/<file2>" "<InputDir>\<file2>" --region <bucket-region>
+
+REM === Process files ===
+REM Binary args are configurable via CommandArgs (default: --file "{filename}")
+REM {filename} is replaced with the full input path: <InputDir>\<file-name>
 echo FILE_START:<file1>
 "<BinaryDir>\<BinaryName>" <resolved-command-args-for-file1>
 if %ERRORLEVEL% EQU 0 (echo FILE_DONE:<file1>) else (echo FILE_FAILED:<file1>)
 echo FILE_START:<file2>
 "<BinaryDir>\<BinaryName>" <resolved-command-args-for-file2>
 if %ERRORLEVEL% EQU 0 (echo FILE_DONE:<file2>) else (echo FILE_FAILED:<file2>)
-"@ | Set-Content -Path $batPath -Encoding ASCII
 
-# Execute the batch file
+REM === Upload results ===
+REM Output S3 path can be overridden per-instance via the Output Path field on each instance card
+aws s3 cp "<InputDir>\output\result_<file1>" "s3://<output-bucket>/results/result_<file1>" --region <output-region>
+if %ERRORLEVEL% NEQ 0 echo UPLOAD_FAILED:<file1>
+aws s3 cp "<InputDir>\output\result_<file2>" "s3://<output-bucket>/results/result_<file2>" --region <output-region>
+if %ERRORLEVEL% NEQ 0 echo UPLOAD_FAILED:<file2>
+
+REM === Upload this bat file as audit log ===
+aws s3 cp "%~f0" "s3://<output-bucket>/results/test_%TIMESTAMP%.bat" --region <output-region>
+if %ERRORLEVEL% NEQ 0 echo BAT_UPLOAD_FAILED
+"@
+$batContent = $batContent.Replace('%TIMESTAMP%', $ts)
+Set-Content -Path $batPath -Value $batContent -Encoding ASCII
+
 cmd /c "`"$batPath`""
-
-# Upload batch file to S3 as audit log (failure logged but doesn't abort)
-try { Write-S3Object -BucketName '<output-bucket>' -Key ('results/test_' + $ts + '.bat') -File $batPath -Region '<output-region>' } catch { Write-Output 'BAT_UPLOAD_FAILED' }
-
-# Upload results to S3 (failures logged but don't abort)
-# Output S3 path can be overridden per-instance via the Output Path field on each instance card
-try { Write-S3Object -BucketName '<output-bucket>' -Key 'results/result_<file1>' -File 'C:\data\output\result_<file1>' -Region '<output-region>' } catch { Write-Output 'UPLOAD_FAILED:<file1>' }
-try { Write-S3Object -BucketName '<output-bucket>' -Key 'results/result_<file2>' -File 'C:\data\output\result_<file2>' -Region '<output-region>' } catch { Write-Output 'UPLOAD_FAILED:<file2>' }
 ```
 
-Note: Uses `Copy-S3Object`/`Write-S3Object` from the AWSPowerShell module (pre-installed on AWS Windows AMIs).
+All S3 operations use `aws s3 cp` (AWS CLI) inside the bat file. The bat is fully self-contained — it serves as a complete audit log of every operation performed during the job.
 
 The binary:
-1. Reads the input file from `C:\data\<filename>`
+1. Reads the input file from `<InputDir>\<filename>` (configurable, default `C:\data`)
 2. Processes it
-3. Writes result to `C:\data\output\result_<filename>`
+3. Writes result to `<InputDir>\output\result_<filename>`
 4. Prints progress/status to stdout, errors to stderr
 
-The binary does NOT handle S3 transfers. The SSM script handles all downloads and uploads.
+The binary does NOT handle S3 transfers. The bat file handles all downloads and uploads.
 
 ### Monitoring
 - App polls `ssm:GetCommandInvocation` every 3 seconds (configurable via `PollIntervalSeconds`)
@@ -338,7 +350,7 @@ The binary does NOT handle S3 transfers. The SSM script handles all downloads an
 
 | Failure | Detection | Recovery |
 |---|---|---|
-| S3 download fails | Copy-S3Object throws, SSM reports `Failed` | Retry job |
+| S3 download fails | `aws s3 cp` fails, SSM reports `Failed` | Retry job |
 | process.exe crashes | Non-zero exit code in SSM output | Inspect stderr, fix and retry |
 | Instance terminated (spot reclaim) | `GetCommandInvocation` returns error or `Failed` | Retry on another instance |
 | SSM Agent not responding | `SendCommand` fails or times out | Start instance, wait for SSM |
@@ -349,36 +361,36 @@ The binary does NOT handle S3 transfers. The SSM script handles all downloads an
 ## Binary Executable Contract
 
 ### Invocation
-The binary is invoked once per file with configurable arguments. The **Command Args** field in Tab 3 controls the argument format, with `{filename}` replaced by each file's name.
+The binary is invoked once per file with configurable arguments. The **Command Args** field in Tab 3 controls the argument format, with `{filename}` replaced by the full input path (`<InputDir>\<file-name>`).
 
 Default Command Args: `--file "{filename}"`
 
 Example invocations:
 ```
-# Default args: --file "{filename}"
-"C:\processor\process.bat" --file "sample.txt"
+# Default args with Input Dir = C:\data: --file "{filename}"
+"C:\processor\process.bat" --file "C:\data\sample.txt"
 
 # Custom args: --mode fast --input "{filename}" --threads 4
-"C:\processor\myprocessor.exe" --mode fast --input "sample.txt" --threads 4
+"C:\processor\myprocessor.exe" --mode fast --input "C:\data\sample.txt" --threads 4
 ```
 
 The binary path is prepended automatically from Binary Dir + the selected binary file name.
 
 ### Expected Behavior
-1. Read input from `C:\data\<filename>` (SSM script downloads files here)
+1. Read input from `<InputDir>\<filename>` (bat file downloads files here; Input Dir is configurable, default `C:\data`)
 2. Process the file
-3. Write result to `C:\data\output\result_<filename>` (SSM script uploads from here)
+3. Write result to `<InputDir>\output\result_<filename>` (bat file uploads from here)
 4. Print progress and status to stdout
 5. Print errors to stderr
 6. Return exit code 0 on success, non-zero on failure
 
-The binary does NOT handle S3 uploads or downloads. The SSM script handles all S3 transfers.
+The binary does NOT handle S3 uploads or downloads. The bat file handles all S3 transfers.
 
 ### Deployment
 - The binary is stored in S3 at a configurable **Deploy Source** path (e.g. `s3://batchtest3-cbai/deploy/process.bat`)
-- At the start of each job, the SSM script downloads the binary from Deploy Source to the local **Binary Directory** (e.g. `C:\processor\process.bat`)
+- At the start of each job, the bat file downloads the binary from Deploy Source to the local **Binary Directory** via `aws s3 cp`
 - The operator can change the Deploy Source via the **Deploy Picker** in the Assignment tab (an S3 browser modal)
-- Per-job batch files (`test_[TIMESTAMP].bat`) are generated by the SSM script at runtime and uploaded to the output S3 path as an audit log
+- Per-job batch files (`test_[TIMESTAMP].bat`) contain all operations and are uploaded to the output S3 path as an audit log
 - To update the binary: upload a new version to the Deploy Source path in S3
 
 ---
@@ -460,6 +472,8 @@ The app uses a primary window with a tab-based workflow. The user progresses thr
 
 ### Tab 2: Select Instances (EC2 Fleet)
 - Discovers instances across all configured regions via `DescribeInstances`
+- **Collapsible region groups** — each region is an expandable section showing the instance count (e.g. `us-east-1 (3)`)
+- **Search bar** — filter instances by name (case-insensitive substring match)
 - Shows instance ID, state, type, region, name tag
 - Start/stop instances
 - Select instances for processing
@@ -468,8 +482,9 @@ The app uses a primary window with a tab-based workflow. The user progresses thr
 
 ### Tab 3: Assign & Run (Split View)
 Upper panel (JobAssignment):
-- Configuration fields: Binary (with S3 browse picker), Binary Dir, Job Log Dir, Output S3 Path, Command Args
-- Command Args supports `{filename}` placeholder, replaced with each file's name per invocation
+- Configuration fields: Binary (with S3 browse picker), Binary Dir, Input Dir, Job Log Dir, Output S3 Path, Command Args
+- Input Dir controls where input files are downloaded on the EC2 instance (default: `C:\data`); directory is created automatically
+- Command Args supports `{filename}` placeholder, replaced with the full input path (`<InputDir>\<file-name>`) per invocation
 - Per-instance Output Path override on each instance card (blank = use global Output S3 Path)
 - Assign files to instances manually via [+ Add Files] buttons or auto-distribute (round-robin)
 - Validation gate: all files assigned, all instances have files, all config fields filled
@@ -499,6 +514,7 @@ App settings in `appsettings.json`:
     "JobLogDirectory": "C:\\processor\\jobs",
     "JobBatNamePrefix": "test_",
     "ProcessorDirectory": "C:\\processor",
+    "InputDirectory": "C:\\data",
     "DeploySource": "s3://batchtest3-cbai/deploy/process.bat",
     "OutputS3Prefix": "s3://batchtest3-cbai/results/",
     "CommandArgs": "--file \"{filename}\"",
@@ -520,9 +536,10 @@ App settings in `appsettings.json`:
 | `Processing:JobLogDirectory` | Directory on EC2 where `test_[TIMESTAMP].bat` files are written |
 | `Processing:JobBatNamePrefix` | Prefix for generated batch file names (default: `test_`) |
 | `Processing:ProcessorDirectory` | Directory on EC2 where the binary is downloaded to |
+| `Processing:InputDirectory` | Directory on EC2 where input files are downloaded (default: `C:\data`); created automatically if missing |
 | `Processing:DeploySource` | S3 URI of the binary (e.g. `s3://bucket/deploy/process.bat`) |
 | `Processing:OutputS3Prefix` | S3 path where result files are uploaded |
-| `Processing:CommandArgs` | Arguments template for binary invocation; `{filename}` is replaced per file |
+| `Processing:CommandArgs` | Arguments template for binary invocation; `{filename}` is replaced with the full input path (`<InputDir>\<file-name>`) |
 | `Processing:PollIntervalSeconds` | SSM status polling interval in seconds |
 | `Ssm:CommandTimeoutSeconds` | SSM command timeout |
 | `Preview:MaxFileSizeBytes` | Max bytes to fetch for S3 file preview |

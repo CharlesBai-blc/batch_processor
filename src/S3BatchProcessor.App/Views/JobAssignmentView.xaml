@@ -51,7 +51,11 @@
                 <WrapPanel Grid.Row="1" Margin="0,4,0,0">
                     <TextBlock Text="Binary Dir:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
                     <TextBox Text="{Binding ProcessorDirectory, UpdateSourceTrigger=PropertyChanged}"
-                             Width="160" VerticalAlignment="Center" Margin="0,0,12,0" />
+                             Width="140" VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <TextBlock Text="Input Dir:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                    <TextBox Text="{Binding InputDirectory, UpdateSourceTrigger=PropertyChanged}"
+                             Width="140" VerticalAlignment="Center" Margin="0,0,12,0"
+                             ToolTip="Directory on the EC2 instance where input files are downloaded" />
                     <TextBlock Text="Job Log Dir:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
                     <TextBox Text="{Binding JobLogDirectory, UpdateSourceTrigger=PropertyChanged}"
                              Width="150" VerticalAlignment="Center" Margin="0,0,12,0" />

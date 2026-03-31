@@ -16,6 +16,7 @@ public interface IJobOrchestrationService
         string jobLogDirectory,
         string deploySource,
         string commandArgs,
+        string inputDirectory,
         Action<JobResult> onResultUpdated,
         CancellationToken cancellationToken = default);
 

@@ -63,7 +63,7 @@ Input data can span multiple buckets. The deploy source and output prefix can be
 #### Base Image
 - **Windows Server AMI** (2019 or 2022)
 - SSM Agent pre-installed (default on AWS Windows AMIs)
-- AWSPowerShell module available (default on AWS Windows AMIs)
+- AWS CLI installed (required for `aws s3 cp` commands in the generated batch files)
 
 #### IAM Instance Profile
 
@@ -109,15 +109,15 @@ The binary expects this directory structure on each EC2 instance:
 C:\processor\
     process.bat          <- binary downloaded from S3 at the start of each job
     jobs\                <- batch audit files written here
-        test_*.bat       <- one per SSM command per instance
+        test_*.bat       <- one per SSM command per instance; contains ALL operations as audit log
 
-C:\data\
+<InputDir>\              <- configurable via "Input Dir" field (default: C:\data)
     <input files>        <- pulled from S3 per job
     output\
-        result_<filename> <- written by processor, uploaded to S3
+        result_<filename> <- written by processor, uploaded to S3 by the batch file
 ```
 
-These directories are created automatically by the SSM script at job start. If you want them pre-created, add a User Data script to your instance/launch template:
+These directories are created automatically by the batch file at job start. If you want them pre-created, add a User Data script to your instance/launch template:
 
 ```powershell
 <powershell>
@@ -248,6 +248,7 @@ Configuration lives in `appsettings.json` alongside the application executable. 
     "JobLogDirectory": "C:\\processor\\jobs",
     "JobBatNamePrefix": "test_",
     "ProcessorDirectory": "C:\\processor",
+    "InputDirectory": "C:\\data",
     "DeploySource": "s3://batchtest3-cbai/deploy/process.bat",
     "OutputS3Prefix": "s3://batchtest3-cbai/results/",
     "CommandArgs": "--file \"{filename}\"",
@@ -276,9 +277,10 @@ Configuration lives in `appsettings.json` alongside the application executable. 
 | Key | Default | Description |
 |---|---|---|
 | `ProcessorDirectory` | `C:\processor` | Path on EC2 instances where the binary is downloaded to. The deploy source file is saved as `<ProcessorDirectory>\<filename>`. |
+| `InputDirectory` | `C:\data` | Path on EC2 instances where input files are downloaded. Created automatically if missing. Output goes to `<InputDirectory>\output\`. |
 | `DeploySource` | `s3://batchtest3-cbai/deploy/process.bat` | S3 URI of the binary. Can also be changed at runtime via the S3 browse picker in Tab 3. |
 | `OutputS3Prefix` | `s3://batchtest3-cbai/results/` | S3 URI path where results and audit batch files are uploaded. Must end with `/`. |
-| `CommandArgs` | `--file "{filename}"` | Arguments passed to the binary for each file. `{filename}` is replaced with the actual file name. |
+| `CommandArgs` | `--file "{filename}"` | Arguments passed to the binary for each file. `{filename}` is replaced with the full input path (e.g. `C:\data\sample.txt`). |
 | `JobLogDirectory` | `C:\processor\jobs` | Path on EC2 instances where per-job batch files (`test_*.bat`) are written. |
 | `JobBatNamePrefix` | `test_` | Prefix for generated batch file names. Full name: `<prefix><timestamp>.bat`. |
 | `PollIntervalSeconds` | `3` | How often (in seconds) the app polls SSM for job status updates during execution. Lower = more responsive but more API calls. |
@@ -301,6 +303,7 @@ Some configuration values can be overridden in the app's UI (Tab 3) without edit
 
 - **Binary**: Click "Browse S3..." to pick a different binary executable
 - **Binary Dir**: Edit the text field directly
+- **Input Dir**: Edit the text field directly (where input files download on EC2)
 - **Job Log Dir**: Edit the text field directly
 - **Output S3 Path**: Edit the text field directly
 - **Command Args**: Edit the text field directly (use `{filename}` as placeholder)
@@ -344,13 +347,15 @@ This tab discovers and displays your EC2 instances. You select which instances w
 
 #### Using On-Demand Instances:
 
-1. **Instances load automatically** on startup, scanned across all configured regions. Each card shows the instance name, ID, type, state (color-coded dot), and availability zone.
+1. **Instances load automatically** on startup, scanned across all configured regions. Instances are grouped by region in **collapsible sections** — click a region header to expand/collapse it. Each section shows the instance count (e.g. `us-east-1 (3)`).
 
-2. **Click "Select"** on an instance card to add it to the Selected Instances pane (right side). Click the **X** next to a selected instance to remove it.
+2. **Search** — type in the search bar at the top to filter instances by name. The filter is case-insensitive and matches any part of the instance name. Clear the search to show all instances again.
 
-3. **Start/stop** instances via right-click or the buttons on each card. The app can auto-start stopped instances during pre-flight (Tab 3), so you don't have to start them manually.
+3. **Click "Select"** on an instance card to add it to the Selected Instances pane (right side). Click the **X** next to a selected instance to remove it.
 
-4. **Auto-refresh** is enabled by default (every 30 seconds). Toggle it off with the checkbox if needed.
+4. **Start/stop** instances via right-click or the buttons on each card. The app can auto-start stopped instances during pre-flight (Tab 3), so you don't have to start them manually.
+
+5. **Auto-refresh** is enabled by default (every 30 seconds). Toggle it off with the checkbox if needed.
 
 #### Using Spot Instances:
 
@@ -380,9 +385,10 @@ This tab is split into two areas: **Job Assignment** (upper) and **Job Execution
 |---|---|---|
 | **Binary** | S3 URI of the binary executable | Click "Browse S3..." to navigate and select. Pre-filled from `appsettings.json`. |
 | **Binary Dir** | Directory on EC2 where binary is saved | Default: `C:\processor`. Rarely needs changing. |
+| **Input Dir** | Directory on EC2 where input files are downloaded | Default: `C:\data`. Created automatically if it doesn't exist. |
 | **Job Log Dir** | Directory on EC2 for batch audit files | Default: `C:\processor\jobs`. |
 | **Output S3 Path** | S3 path for result uploads | Default from config. Format: `s3://bucket/prefix/`. Must end with `/`. |
-| **Command Args** | Arguments passed to the binary | Default: `--file "{filename}"`. The `{filename}` placeholder is replaced with each file's name. |
+| **Command Args** | Arguments passed to the binary | Default: `--file "{filename}"`. The `{filename}` placeholder is replaced with the full input path (e.g. `C:\data\sample.txt`). |
 
 Each instance card also has an **Output Path** field. Fill it in to override the global Output S3 Path for that instance only (e.g., to send different instances' results to different S3 locations). Leave blank to use the global value.
 
@@ -407,6 +413,7 @@ Before running, the app checks:
 - All files are assigned (none left in the unassigned pool)
 - All instances have at least one file
 - Binary deploy source is set
+- Input directory is set
 - Output S3 path is set
 - Command args is set
 
@@ -424,7 +431,7 @@ If validation fails, an orange banner appears listing what needs to be fixed.
 
 3. **Execution** begins:
    - One SSM command per instance, dispatched in parallel
-   - Each command downloads the binary from S3, downloads assigned input files, generates a batch file, runs it, and uploads results
+   - Each command writes a self-contained bat file (with all operations: downloads, execution, uploads) and runs it
    - Progress bar shows: "X / Y completed (Z success, W failed)"
    - Results DataGrid shows per-file status, duration, output, and errors
 
@@ -441,29 +448,29 @@ If validation fails, an orange banner appears listing what needs to be fixed.
 
 ### Binary Executable Contract
 
-Your binary (`.bat`, `.exe`, or any executable) is invoked once per file with the arguments you specify in the **Command Args** field. The `{filename}` placeholder is replaced with each file's name.
+Your binary (`.bat`, `.exe`, or any executable) is invoked once per file with the arguments you specify in the **Command Args** field. The `{filename}` placeholder is replaced with the full input path (e.g. `C:\data\sample.txt`).
 
-**Default invocation (Command Args = `--file "{filename}"`):**
+**Default invocation (Command Args = `--file "{filename}"`, Input Dir = `C:\data`):**
 ```
-C:\processor\process.bat --file "sample.txt"
+C:\processor\process.bat --file "C:\data\sample.txt"
 ```
 
 **Custom example (Command Args = `--mode fast --input "{filename}" --threads 4`):**
 ```
-C:\processor\myprocessor.exe --mode fast --input "sample.txt" --threads 4
+C:\processor\myprocessor.exe --mode fast --input "C:\data\sample.txt" --threads 4
 ```
 
 The binary path is always prepended automatically from the Binary + Binary Dir fields. You only control the arguments via Command Args.
 
 **Expected behavior:**
-1. Read input from `C:\data\<filename>` (the SSM script downloads files here)
+1. Read input from `<InputDir>\<filename>` (the bat file downloads files here; Input Dir is configurable, default `C:\data`)
 2. Process the file
-3. Write result to `C:\data\output\result_<filename>` (the SSM script uploads from here)
+3. Write result to `<InputDir>\output\result_<filename>` (the bat file uploads from here)
 4. Print progress/status to stdout
 5. Print errors to stderr
 6. Return exit code 0 on success, non-zero on failure
 
-The binary does NOT handle S3 transfers. The SSM script handles all downloads and uploads.
+The binary does NOT handle S3 transfers. The batch file handles all downloads and uploads using `aws s3 cp`.
 
 ---
 
@@ -503,7 +510,7 @@ This walks through a complete job from start to finish. The scenario: you have 4
 
 ### 3. Assign & Run (Tab 3)
 
-1. Top bar shows: Binary: `s3://batchtest3-cbai/deploy/process.bat`, Binary Dir: `C:\processor`, Command Args: `--file "{filename}"`, Output S3 Path: `s3://batchtest3-cbai/results/`
+1. Top bar shows: Binary: `s3://batchtest3-cbai/deploy/process.bat`, Binary Dir: `C:\processor`, Input Dir: `C:\data`, Command Args: `--file "{filename}"`, Output S3 Path: `s3://batchtest3-cbai/results/`
 2. Left side: 4 unassigned files. Right side: 2 instance cards
 3. Click **"Auto-Distribute"** — files are round-robined:
    - `S3BatchProc-Worker-1`: `scan-001.tif`, `survey.las`
@@ -529,23 +536,37 @@ All instances ready for commands.
 
 ### 5. Execution
 
-Phase changes to "Executing Commands". For each instance, the SSM script:
-1. Creates directories (`C:\data`, `C:\data\output`, `C:\processor\jobs`)
-2. Downloads `process.bat` from `s3://batchtest3-cbai/deploy/process.bat`
-3. Downloads assigned input files from their source buckets
-4. Generates `test_20260330_143045_789.bat` containing:
-   ```
+Phase changes to "Executing Commands". For each instance, the SSM script writes and runs a bat file. The bat file `test_20260330_143045_789.bat` contains **all operations**:
+   ```bat
    @echo off
+
+   REM === Directory setup ===
+   if not exist "C:\data" mkdir "C:\data"
+   if not exist "C:\data\output" mkdir "C:\data\output"
+   if not exist "C:\processor\jobs" mkdir "C:\processor\jobs"
+
+   REM === Download binary ===
+   aws s3 cp "s3://batchtest3-cbai/deploy/process.bat" "C:\processor\process.bat" --region us-east-2
+
+   REM === Download input files ===
+   aws s3 cp "s3://batchtest1-cbai/data/scan-001.tif" "C:\data\scan-001.tif" --region us-east-2
+   aws s3 cp "s3://batchtest1-cbai/data/survey.las" "C:\data\survey.las" --region us-east-2
+
+   REM === Process files ===
    echo FILE_START:scan-001.tif
-   "C:\processor\process.bat" --file "scan-001.tif"
+   "C:\processor\process.bat" --file "C:\data\scan-001.tif"
    if %ERRORLEVEL% EQU 0 (echo FILE_DONE:scan-001.tif) else (echo FILE_FAILED:scan-001.tif)
    echo FILE_START:survey.las
-   "C:\processor\process.bat" --file "survey.las"
+   "C:\processor\process.bat" --file "C:\data\survey.las"
    if %ERRORLEVEL% EQU 0 (echo FILE_DONE:survey.las) else (echo FILE_FAILED:survey.las)
+
+   REM === Upload results ===
+   aws s3 cp "C:\data\output\result_scan-001.tif" "s3://batchtest3-cbai/results/result_scan-001.tif" --region us-east-2
+   aws s3 cp "C:\data\output\result_survey.las" "s3://batchtest3-cbai/results/result_survey.las" --region us-east-2
+
+   REM === Upload this bat file as audit log ===
+   aws s3 cp "%~f0" "s3://batchtest3-cbai/results/test_20260330_143045_789.bat" --region us-east-2
    ```
-5. Runs the batch file
-6. Uploads the batch file to `s3://batchtest3-cbai/results/test_20260330_143045_789.bat`
-7. Uploads `result_scan-001.tif` and `result_survey.las` to `s3://batchtest3-cbai/results/`
 
 The progress bar updates as files complete: `2 / 4 completed (2 success, 0 failed)` → `4 / 4 completed (4 success, 0 failed)`
 
