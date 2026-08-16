@@ -1,10 +1,10 @@
-name: forge-m2
+name: forge-m3-fast
 on:
   workflow_dispatch:
 jobs:
   ping:
     runs-on: [self-hosted, forge]
     steps:
-      - run: echo hello from forge
+      - run: echo hello from forge m3
       - run: uname -a
       - run: id
