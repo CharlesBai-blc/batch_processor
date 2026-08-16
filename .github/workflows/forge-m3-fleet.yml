@@ -1,0 +1,17 @@
+name: forge-m3-fleet
+on:
+  workflow_dispatch:
+jobs:
+  fleet:
+    strategy:
+      max-parallel: 2
+      matrix:
+        slot: [a, b]
+    runs-on: [self-hosted, forge]
+    steps:
+      - name: Hold both workers
+        run: |
+          for n in $(seq 1 20); do
+            echo "slot=${{ matrix.slot }} tick=$n"
+            sleep 2
+          done
