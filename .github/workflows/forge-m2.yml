@@ -1,0 +1,10 @@
+name: forge-m2
+on:
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: [self-hosted, forge]
+    steps:
+      - run: echo hello from forge
+      - run: uname -a
+      - run: id
