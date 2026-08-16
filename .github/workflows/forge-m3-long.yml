@@ -1,0 +1,13 @@
+name: forge-m3-long
+on:
+  workflow_dispatch:
+jobs:
+  hold:
+    runs-on: [self-hosted, forge]
+    steps:
+      - name: Run past the visibility timeout
+        run: |
+          for n in $(seq 1 45); do
+            echo "long tick=$n"
+            sleep 2
+          done
