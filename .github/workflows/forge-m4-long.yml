@@ -1,0 +1,13 @@
+name: forge-m4-long
+on:
+  workflow_dispatch:
+jobs:
+  hold:
+    runs-on: [self-hosted, forge]
+    steps:
+      - name: Hold for inspect
+        run: |
+          for n in $(seq 1 30); do
+            echo "long tick=$n"
+            sleep 2
+          done
