@@ -1,0 +1,10 @@
+name: forge-m4-fast
+on:
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: [self-hosted, forge]
+    steps:
+      - run: echo hello from forge m4
+      - run: uname -a
+      - run: id
